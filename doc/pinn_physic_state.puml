@@ -1,0 +1,29 @@
+@startuml PINNPhysicState
+skinparam Linetype ortho
+left to right direction
+
+header
+Links zwischen Physikmodell und PINN
+endheader
+
+package Physikmodell_Approach {
+  class Physikmodell {
+    C++ basiert
+  }
+}
+
+package PINN_Approach {
+  class PINN {
+    C++ basiert
+  }
+
+  class PinnTrainer {
+    Python basiert
+  }
+}
+
+PinnTrainer --> PINN
+Physikmodell --o PINN
+PINN --* Physikmodell
+
+@enduml
