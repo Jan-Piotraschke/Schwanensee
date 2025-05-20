@@ -20,6 +20,15 @@ package PINN_Approach {
   class PinnTrainer {
     Python basiert
   }
+
+  note right of PinnTrainer
+    Python module uses TensorFlow.
+    The TensorFlow model is translated into an ONNX model.
+  end note
+
+  note right of PINN
+    ONNX model used in C++ for inference.
+  end note
 }
 
 PinnTrainer --> PINN
