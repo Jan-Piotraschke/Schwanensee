@@ -1,4 +1,5 @@
 import deepxde as dde
+
 # Use TensorFlow backend
 dde.backend.set_default_backend("tensorflow")
 
@@ -12,39 +13,42 @@ from scipy.interpolate import interp1d
 from autograd import elementwise_grad
 import autograd.numpy as anp
 
-cmap = plt.get_cmap('tab10')
+cmap = plt.get_cmap("tab10")
 
 # FitzHugh-Nagumo model parameters
-params = {
-    'I': 0.5,
-    'a': 0.8,
-    'b': 0.7,
-    'tau': 12.5
-}
+params = {"I": 0.5, "a": 0.8, "b": 0.7, "tau": 12.5}
 ini = (0, 0)
+
 
 def dv_dt(x, p=params):
     v, w = x.T
-    return v - v**3/3 - w + p['I']
+    return v - v**3 / 3 - w + p["I"]
+
 
 def dw_dt(x, p=params):
     v, w = x.T
-    return (v + p['a'] - p['b'] * w) / p['tau']
+    return (v + p["a"] - p["b"] * w) / p["tau"]
+
 
 def diff_eq(t, x, p=params):
     return [diff_eqs[i](x) for i in range(len(diff_eqs))]
+
 
 def gen_truedata(func, t, ini, params):
     sol = integrate.solve_ivp(func, (min(t), max(t)), ini, t_eval=t, args=(params,))
     return sol.y.T
 
+
 # Define PDE system using TensorFlow operations
 def ode_system(x, y):
-
-    t  = x
+    t = x
     Z0 = y
 
-    Z0dot = tf.squeeze(tf.stack([dde.grad.jacobian(y,x,i=i,j=0) for i in range(len(diff_eqs))],axis=1))
+    Z0dot = tf.squeeze(
+        tf.stack(
+            [dde.grad.jacobian(y, x, i=i, j=0) for i in range(len(diff_eqs))], axis=1
+        )
+    )
 
     # elementwise dot product
     constraint = tf.keras.backend.batch_dot(Z0, F_xlc) - 1
@@ -53,19 +57,16 @@ def ode_system(x, y):
     JT_dot_Z0 = tf.linalg.matvec(J_T, Z0)
     diff_eq = Z0dot + JT_dot_Z0
 
-    return [
-        constraint,
-        diff_eq
-    ]
+    return [constraint, diff_eq]
 
 
 diff_eqs = [dv_dt, dw_dt]
-eq_names = ['v', 'w']
+eq_names = ["v", "w"]
 
 # Simulate data to get the limit cycle
 T = 1000
 dt = 0.001
-t_sim = np.linspace(0, T, int(T/dt))
+t_sim = np.linspace(0, T, int(T / dt))
 
 x = gen_truedata(diff_eq, t_sim, ini, params)
 
@@ -94,14 +95,16 @@ P0 = (pks[-1] - pks[-2]) * dt
 f0 = 1 / P0
 
 # Limit cycle slice
-x_lc = x[pks[-2]:pks[-1]]
-t = t_sim[pks[-2]:pks[-1]] - t_sim[pks[-2]]
+x_lc = x[pks[-2] : pks[-1]]
+t = t_sim[pks[-2] : pks[-1]] - t_sim[pks[-2]]
 
 # Time derivative along limit cycle
 F_xlc_ = np.array(diff_eq(t, x_lc)).T
 
 # Compute Jacobian of limit cycle
-J_ = anp.stack([elementwise_grad(diff_eqs[i])(x_lc) for i in range(len(diff_eqs))], axis=1)
+J_ = anp.stack(
+    [elementwise_grad(diff_eqs[i])(x_lc) for i in range(len(diff_eqs))], axis=1
+)
 
 # Geometry
 geom = dde.geometry.TimeDomain(t[0], t[-1])
@@ -132,7 +135,6 @@ for ii, jj in enumerate(J_.T):
 J_T = tf.convert_to_tensor(J_T, dtype=tf.float32)
 
 
-
 data.f = ode_system
 
 # Define and train model
@@ -152,15 +154,21 @@ Z0 = model.predict(t.reshape(-1, 1))
 # Plot phase response curves
 plt.figure(tight_layout=True)
 for i, (z0, var) in enumerate(zip(Z0.T, eq_names)):
-    plt.subplot(len(diff_eqs), 1, i+1)
-    plt.plot(t/P0, z0)
-    plt.xlabel('phi')
-    plt.ylabel(f'dphi/d{var}')
+    plt.subplot(len(diff_eqs), 1, i + 1)
+    plt.plot(t / P0, z0)
+    plt.xlabel("phi")
+    plt.ylabel(f"dphi/d{var}")
 
 # Compare dZ0/dt and -J.T * Z0
-plt.plot(t[1:]/P0, np.diff(Z0, axis=0)/dt, linewidth=5, c='y', label='dZ0/dt')
-plt.plot(t/P0, -(J_.swapaxes(1, 2) @ Z0[..., None])[..., 0], linestyle='--', c='k', label='-J.T*Z0')
-plt.xlabel('phi')
+plt.plot(t[1:] / P0, np.diff(Z0, axis=0) / dt, linewidth=5, c="y", label="dZ0/dt")
+plt.plot(
+    t / P0,
+    -(J_.swapaxes(1, 2) @ Z0[..., None])[..., 0],
+    linestyle="--",
+    c="k",
+    label="-J.T*Z0",
+)
+plt.xlabel("phi")
 plt.legend()
 
 # Dot product check: Z0 · F_xlc_
@@ -168,8 +176,7 @@ F_xlc_ = tf.convert_to_tensor(F_xlc_, dtype=tf.float32)
 Z0 = tf.convert_to_tensor(Z0, dtype=tf.float32)
 dot_product_results = tf.reduce_sum(Z0 * F_xlc_, axis=1)
 plt.plot(t / P0, dot_product_results.numpy())
-plt.xlabel('phi')
-plt.ylabel('Z0 * W0')
+plt.xlabel("phi")
+plt.ylabel("Z0 * W0")
 
 model.net.export("floquet_mode_savedmodel")
-

@@ -4,20 +4,23 @@ import numpy as np
 # Backend
 from deepxde.backend import tf
 
+
 # Define the pde function
 def pde(x, y):
     dy_t = dde.grad.jacobian(y, x, i=0, j=1)
     dy_xx = dde.grad.hessian(y, x, i=0, j=0)
     return (
-       dy_t
-       - dy_xx
-       + tf.exp(-x[:, 1:])
-       * (tf.sin(np.pi * x[:, 0:1]) - np.pi ** 2 * tf.sin(np.pi * x[:, 0:1]))
+        dy_t
+        - dy_xx
+        + tf.exp(-x[:, 1:])
+        * (tf.sin(np.pi * x[:, 0:1]) - np.pi**2 * tf.sin(np.pi * x[:, 0:1]))
     )
+
 
 # Initial condition function
 def func(x):
     return np.sin(np.pi * x[:, 0:1]) * np.exp(-x[:, 1:])
+
 
 # Define geometry and time domain
 geom = dde.geometry.Interval(-1, 1)
