@@ -1,0 +1,68 @@
+@startuml psaiPhysicState
+skinparam Linetype ortho
+left to right direction
+
+header
+Links zwischen PhysikModell und PINN
+endheader
+
+package Physikmodell_Approach {
+  class PhysikModell {
+    C++ basiert
+  }
+}
+
+package App #FEC20C {
+  class Deployment
+
+  class InputData
+
+  class Predictions
+}
+
+package Modeling {
+  class CellML {
+    model exchange standard
+  }
+
+  class OpenCOR {
+    CellML editing tool
+  }
+}
+
+package psai_Approach {
+  class PythonPhysikModell {
+    Model for simulating data
+  }
+
+  class TrainedPINN {
+    C++ basiert
+  }
+
+  class PhysioSensAI {
+    Model for embedding into the NN
+  }
+
+  note right of PhysioSensAI
+    Python module uses TensorFlow.
+    The TensorFlow model is translated into an ONNX model.
+  end note
+
+  note right of TrainedPINN
+    ONNX model used in C++ for inference.
+  end note
+}
+
+
+CellML --> PythonPhysikModell : cellmlmanip converter
+PythonPhysikModell -> PhysioSensAI : DeepXDEParser
+PhysioSensAI --> TrainedPINN : onnx converter
+CellML ---> PhysikModell : chaste_codegen converter
+CellML -left-o OpenCOR
+PhysikModell --> Deployment
+TrainedPINN -right-> Deployment
+
+InputData -> Deployment
+Deployment -> Predictions
+
+@enduml

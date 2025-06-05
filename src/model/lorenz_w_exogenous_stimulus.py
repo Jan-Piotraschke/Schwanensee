@@ -2,16 +2,23 @@
 
 https://deepxde.readthedocs.io/en/latest/demos/pinn_inverse/lorenz.inverse.forced.html
 """
-import re
-
 import deepxde as dde
-import matplotlib.pyplot as plt
 import numpy as np
 import scipy as sp
 from scipy.integrate import odeint
 
 
-# Generate data
+# ===============================================
+# SECTION 1: DATA GENERATION & INPUT PREPARATION
+#
+# Simulated Unobservable Data:
+# This section covers creating the synthetic data
+# from the Lorenz system using the true parameters
+# and preparing the input data.
+#
+# Observable Data:
+# None
+# ===============================================
 # true values, see p. 15 in https://arxiv.org/abs/1907.04502
 C1true = 10
 C2true = 15
@@ -21,6 +28,7 @@ C3true = 8 / 3
 maxtime = 3
 time = np.linspace(0, maxtime, 200)
 ex_input = 10 * np.sin(2 * np.pi * time)  # exogenous input
+
 
 # interpolate time / lift vectors (for using exogenous variable without fixed time stamps)
 def ex_func(t):
@@ -46,20 +54,23 @@ x0 = [-8, 7, 27]
 
 # solve ODE
 x = odeint(LorezODE, x0, time)
-
-# plot results
-plt.plot(time, x, time, ex_input)
-plt.xlabel("time")
-plt.ylabel("x(t)")
-plt.show()
-
 time = time.reshape(-1, 1)
 
-# Perform identification
+
+# ==========================================
+# SECTION 2: PHYSICS MODEL DEFINITION
+#
+# This section defines the physical model
+# with unknown parameters that we're trying to identify,
+# including the system equations,
+# boundary conditions (BC),
+# and initial conditions (IC).
+# ==========================================
 # parameters to be identified
 C1 = dde.Variable(1.0)
 C2 = dde.Variable(1.0)
 C3 = dde.Variable(1.0)
+
 
 # interpolate time / lift vectors (for using exogenous variable without fixed time stamps)
 def ex_func2(t):
@@ -105,6 +116,14 @@ observe_y0 = dde.icbc.PointSetBC(observe_t, ob_y[:, 0:1], component=0)
 observe_y1 = dde.icbc.PointSetBC(observe_t, ob_y[:, 1:2], component=1)
 observe_y2 = dde.icbc.PointSetBC(observe_t, ob_y[:, 2:3], component=2)
 
+
+# =============================================
+# SECTION 3: NEURAL NETWORK DESING & TRAINING
+#
+# This section sets up the neural network architecture,
+# compiles the model,
+# and trains it to learn the parameters.
+# =============================================
 # define data object
 data = dde.data.PDE(
     geom,
@@ -115,12 +134,6 @@ data = dde.data.PDE(
     anchors=observe_t,
     auxiliary_var_function=ex_func2,
 )
-
-plt.plot(observe_t, ob_y)
-plt.xlabel("Time")
-plt.legend(["x", "y", "z"])
-plt.title("Training data")
-plt.show()
 
 # define FNN architecture and compile
 net = dde.nn.FNN([1] + [40] * 3 + [3], "tanh", "Glorot uniform")
@@ -133,7 +146,19 @@ variable = dde.callbacks.VariableValue([C1, C2, C3], period=100, filename=fnamev
 
 model.train(iterations=25000, callbacks=[variable])
 
-# Plots
+
+# ==========================================
+# SECTION 4: RESULTS ANALYSIS & MODEL EXPORT
+#
+# This section analyzes the results,
+# visualizes the parameter convergence,
+# compares predicted vs actual trajectories,
+# and reports the trained model.
+# ==========================================
+import re
+import matplotlib.pyplot as plt
+import numpy as np
+
 # reopen saved data using callbacks in fnamevar
 lines = open(fnamevar, "r").readlines()
 # read output data in fnamevar (this line is a long story...)

@@ -1,0 +1,56 @@
+@startuml ModelDeploymentStrategy
+' ──────────────────────  visual settings  ──────────────────────
+skinparam defaultTextAlignment center
+skinparam node {
+  BackgroundColor White
+  BorderColor Black
+}
+skinparam arrow {
+  Color Black
+}
+
+header
+Model Deployment Strategie
+endheader
+
+' ──────────────────────  decision flow  ────────────────────────
+start
+
+if ("Patienten-kritische\n Entscheidung?") then (Ja)
+  if ("Physik des Objekts\n ausreichend verstanden?") then (Ja)
+    :Physikmodell;
+    note left
+      + White Box Insight durch Physik
+      + interpretierbar (Bifurkation und Co.)
+      + Digital Twin Sync Fähigkeit
+    end note
+  else (Nein)
+    #orange:PINN;
+    note right
+      + Bessere Generalisierung
+        bei sparse/noisy Daten
+      - ggf. computational constraints
+    end note
+  endif
+else (Nein)
+  if ("Pattern recognition\n+ anschließende Prozess Aktivierung?\n('AI as a Sensor')") then (Ja)
+    split
+      #orange:PINN;
+    split again
+      #orange:SLM;
+    end split
+  else (Nein)
+    :Strategie dazu noch nicht beschlossen;
+  endif
+endif
+
+stop
+
+skinparam LegendBackgroundColor #FFFFFF
+skinparam LegendBorderColor #FFFFFF
+
+legend right
+  <#FFFFFF,#FFFFFF>|<#orange>| <size:24>AIoT</size> |
+endlegend
+
+@enduml
