@@ -53,6 +53,14 @@ def parse_opencor_to_python(opencor_code: str) -> str:
     # === Assemble output Python code ===
     py_lines = [
         "# === Auto-generated file. Do not modify! ===\n",
+        "# ==========================================",
+        "# SECTION 1: DATA GENERATION & INPUT PREPARATION",
+        "#",
+        "# Simulated Unobservable Data:",
+        "# This section covers creating the synthetic data",
+        "# from the Lorenz system using the true parameters",
+        "# and preparing the input data.",
+        "# ==========================================\n",
         "import numpy as np",
         "from scipy.integrate import odeint",
         "",
