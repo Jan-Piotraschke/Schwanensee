@@ -19,40 +19,15 @@ from scipy.integrate import odeint
 # Observable Data:
 # None
 # ===============================================
-# true values, see p. 15 in https://arxiv.org/abs/1907.04502
-C1true = 10
-C2true = 15
-C3true = 8 / 3
-
 # time points
 maxtime = 3
 time = np.linspace(0, maxtime, 200)
 ex_input = 10 * np.sin(2 * np.pi * time)  # exogenous input
 
-# interpolate time / lift vectors (for using exogenous variable without fixed time stamps)
-def ex_func(t):
-    spline = sp.interpolate.Rbf(
-        time, ex_input, function="thin_plate", smooth=0, episilon=0
-    )
-    return spline(t)
-
-
-# Modified Lorenz system (with exogenous input)
-def LorezODE(x, t):
-    x1, x2, x3 = x
-    dxdt = [
-        C1true * (x2 - x1),
-        x1 * (C2true - x3) - x2,
-        x1 * x2 - C3true * x3 + ex_func(t),
-    ]
-    return dxdt
-
-
-# initial condition
-x0 = [-8, 7, 27]
+from generated.synthetic_data_generator import *
 
 # solve ODE
-x = odeint(LorezODE, x0, time)
+x = odeint(ODE, x0, time)
 time = time.reshape(-1, 1)
 
 
@@ -80,7 +55,7 @@ def ex_func2(t):
 
 
 # define system ODEs
-def Lorenz_system(x, y, ex):
+def ODE_system(x, y, ex):
     """Modified Lorenz system (with exogenous input).
     dy1/dx = 10 * (y2 - y1)
     dy2/dx = y1 * (28 - y3) - y2
@@ -126,7 +101,7 @@ observe_y2 = dde.icbc.PointSetBC(observe_t, ob_y[:, 2:3], component=2)
 # define data object
 data = dde.data.PDE(
     geom,
-    Lorenz_system,
+    ODE_system,
     [ic1, ic2, ic3, observe_y0, observe_y1, observe_y2],
     num_domain=400,
     num_boundary=2,
@@ -143,7 +118,8 @@ model.compile("adam", lr=0.001, external_trainable_variables=[C1, C2, C3])
 fnamevar = "variables.dat"
 variable = dde.callbacks.VariableValue([C1, C2, C3], period=100, filename=fnamevar)
 
-model.train(iterations=25000, callbacks=[variable])
+# TODO: set the iterations to something like 25000 in the real run
+model.train(iterations=1000, callbacks=[variable])
 
 
 # ==========================================
