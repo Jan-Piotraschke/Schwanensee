@@ -131,3 +131,5 @@ dmypy.json
 /torch
 synthetic_data_generator.py
 physio_sensai_model.py
+
+generalized_patient/

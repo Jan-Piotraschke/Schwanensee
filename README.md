@@ -22,9 +22,13 @@ pip install deepxde tensorflow-probability tf-keras
 ```
 
 ```bash
-DDE_BACKEND=tensorflow python src/model/lorenz_w_exogenous_stimulus.py
-DDE_BACKEND=tensorflow python src/floquet_mode.py
-DDE_BACKEND=tensorflow python src/heat.py
+python src/psai.py --python --input example/lorenz/generated/Lorenz_1963.py
+```
+
+and then after this
+
+```bash
+DDE_BACKEND=tensorflow python example/lorenz/lorenz_w_exogenous_stimulus.py
 ```
 
 ## Code Format
