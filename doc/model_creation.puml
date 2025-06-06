@@ -54,7 +54,7 @@ package psai_Approach {
 }
 
 
-CellML --> PythonPhysikModell : cellmlmanip converter
+CellML --> PythonPhysikModell : OpenCOR export
 PythonPhysikModell -> PhysioSensAI : DeepXDEParser
 PhysioSensAI --> TrainedPINN : onnx converter
 CellML ---> PhysikModell : chaste_codegen converter
