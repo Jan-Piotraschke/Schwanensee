@@ -127,3 +127,7 @@ dmypy.json
 # Added by cargo
 
 /target
+/libtorch
+/torch
+synthetic_data_generator.py
+physio_sensai_model.py
