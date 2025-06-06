@@ -154,32 +154,8 @@ model.train(iterations=25000, callbacks=[variable])
 # compares predicted vs actual trajectories,
 # and reports the trained model.
 # ==========================================
-import re
 import matplotlib.pyplot as plt
-import numpy as np
-
-# reopen saved data using callbacks in fnamevar
-lines = open(fnamevar, "r").readlines()
-# read output data in fnamevar (this line is a long story...)
-Chat = np.array(
-    [
-        np.fromstring(
-            min(re.findall(re.escape("[") + "(.*?)" + re.escape("]"), line), key=len),
-            sep=",",
-        )
-        for line in lines
-    ]
-)
-
-l, c = Chat.shape
-plt.plot(range(l), Chat[:, 0], "r-")
-plt.plot(range(l), Chat[:, 1], "k-")
-plt.plot(range(l), Chat[:, 2], "g-")
-plt.plot(range(l), np.ones(Chat[:, 0].shape) * C1true, "r--")
-plt.plot(range(l), np.ones(Chat[:, 1].shape) * C2true, "k--")
-plt.plot(range(l), np.ones(Chat[:, 2].shape) * C3true, "g--")
-plt.legend(["C1hat", "C2hat", "C3hat", "True C1", "True C2", "True C3"], loc="right")
-plt.xlabel("Epoch")
+import os
 
 yhat = model.predict(observe_t)
 plt.figure()
@@ -189,4 +165,7 @@ plt.legend(["x", "y", "z", "xh", "yh", "zh"])
 plt.title("Training data")
 plt.show()
 
-model.net.export("generalized_patient")
+script_dir = os.path.dirname(os.path.abspath(__file__))
+export_path = os.path.join(script_dir, "model", "generalized_patient")
+os.makedirs(os.path.dirname(export_path), exist_ok=True)
+model.net.export(export_path)
