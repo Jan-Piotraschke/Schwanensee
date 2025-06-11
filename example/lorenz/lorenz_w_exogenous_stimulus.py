@@ -24,10 +24,13 @@ maxtime = 3
 time = np.linspace(0, maxtime, 200)
 ex_input = 10 * np.sin(2 * np.pi * time)  # exogenous input
 
-from generated.synthetic_data_generator import *
+from generated.synthetic_data_generator import SyntheticDataGenerator
+
+sdg = SyntheticDataGenerator()
+x0, constants = sdg.initConsts()
 
 # solve ODE
-x = odeint(ODE, x0, time)
+x = odeint(sdg.ODE, x0, time)
 time = time.reshape(-1, 1)
 
 
