@@ -2,10 +2,16 @@
 
 https://deepxde.readthedocs.io/en/latest/demos/pinn_inverse/lorenz.inverse.forced.html
 """
+
 import deepxde as dde
 import numpy as np
 import scipy as sp
 from scipy.integrate import odeint
+import matplotlib.pyplot as plt
+import os
+
+from generated.synthetic_data_generator import SyntheticDataGenerator
+from generated.physio_sensai_model import DeepXDESystem
 
 
 # ===============================================
@@ -24,8 +30,6 @@ maxtime = 3
 time = np.linspace(0, maxtime, 200)
 ex_input = 10 * np.sin(2 * np.pi * time)  # exogenous input
 
-from generated.synthetic_data_generator import SyntheticDataGenerator
-
 sdg = SyntheticDataGenerator()
 x0, constants = sdg.initConsts()
 
@@ -43,12 +47,6 @@ time = time.reshape(-1, 1)
 # boundary conditions (BC),
 # and initial conditions (IC).
 # ==========================================
-# parameters to be identified
-C1 = dde.Variable(1.0)
-C2 = dde.Variable(1.0)
-C3 = dde.Variable(1.0)
-
-
 # interpolate time / lift vectors (for using exogenous variable without fixed time stamps)
 def ex_func2(t):
     spline = sp.interpolate.Rbf(
@@ -57,41 +55,15 @@ def ex_func2(t):
     return spline(t[:, 0:])
 
 
-# define system ODEs
-def ODE_system(x, y, ex):
-    """Modified Lorenz system (with exogenous input).
-    dy1/dx = 10 * (y2 - y1)
-    dy2/dx = y1 * (28 - y3) - y2
-    dy3/dx = y1 * y2 - 8/3 * y3 + u
-    """
-    y1, y2, y3 = y[:, 0:1], y[:, 1:2], y[:, 2:]
-    dy1_x = dde.grad.jacobian(y, x, i=0)
-    dy2_x = dde.grad.jacobian(y, x, i=1)
-    dy3_x = dde.grad.jacobian(y, x, i=2)
-    return [
-        dy1_x - C1 * (y2 - y1),
-        dy2_x - y1 * (C2 - y3) + y2,
-        dy3_x - y1 * y2 + C3 * y3 - ex,
-    ]
-
-
-def boundary(_, on_initial):
-    return on_initial
-
-
-# define time domain
-geom = dde.geometry.TimeDomain(0, maxtime)
+dxs = DeepXDESystem(maxtime)
 
 # Initial conditions
-ic1 = dde.icbc.IC(geom, lambda X: x0[0], boundary, component=0)
-ic2 = dde.icbc.IC(geom, lambda X: x0[1], boundary, component=1)
-ic3 = dde.icbc.IC(geom, lambda X: x0[2], boundary, component=2)
+ic1 = dde.icbc.IC(dxs.geom, lambda X: x0[0], dxs.boundary, component=0)
+ic2 = dde.icbc.IC(dxs.geom, lambda X: x0[1], dxs.boundary, component=1)
+ic3 = dde.icbc.IC(dxs.geom, lambda X: x0[2], dxs.boundary, component=2)
 
 # Get the training data
-observe_t, ob_y = time, x
-observe_y0 = dde.icbc.PointSetBC(observe_t, ob_y[:, 0:1], component=0)
-observe_y1 = dde.icbc.PointSetBC(observe_t, ob_y[:, 1:2], component=1)
-observe_y2 = dde.icbc.PointSetBC(observe_t, ob_y[:, 2:3], component=2)
+observation_handle = dxs.get_observations(time, x)
 
 
 # =============================================
@@ -103,26 +75,25 @@ observe_y2 = dde.icbc.PointSetBC(observe_t, ob_y[:, 2:3], component=2)
 # =============================================
 # define data object
 data = dde.data.PDE(
-    geom,
-    ODE_system,
-    [ic1, ic2, ic3, observe_y0, observe_y1, observe_y2],
+    dxs.geom,
+    dxs.ODE_system,
+    [ic1, ic2, ic3, *observation_handle],
     num_domain=400,
     num_boundary=2,
-    anchors=observe_t,
+    anchors=time,
     auxiliary_var_function=ex_func2,
 )
 
 # define FNN architecture and compile
 net = dde.nn.FNN([1] + [40] * 3 + [3], "tanh", "Glorot uniform")
 model = dde.Model(data, net)
-model.compile("adam", lr=0.001, external_trainable_variables=[C1, C2, C3])
+model.compile("adam", lr=0.001, external_trainable_variables=dxs.constants)
 
 # callbacks for storing results
 fnamevar = "variables.dat"
-variable = dde.callbacks.VariableValue([C1, C2, C3], period=100, filename=fnamevar)
+variable = dde.callbacks.VariableValue(dxs.constants, period=100, filename=fnamevar)
 
-# TODO: set the iterations to something like 25000 in the real run
-model.train(iterations=1000, callbacks=[variable])
+model.train(iterations=35000, callbacks=[variable])
 
 
 # ==========================================
@@ -133,12 +104,9 @@ model.train(iterations=1000, callbacks=[variable])
 # compares predicted vs actual trajectories,
 # and reports the trained model.
 # ==========================================
-import matplotlib.pyplot as plt
-import os
-
-yhat = model.predict(observe_t)
+yhat = model.predict(time)
 plt.figure()
-plt.plot(observe_t, ob_y, "-", observe_t, yhat, "--")
+plt.plot(time, x, "-", time, yhat, "--")
 plt.xlabel("Time")
 plt.legend(["x", "y", "z", "xh", "yh", "zh"])
 plt.title("Training data")
