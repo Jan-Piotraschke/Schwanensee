@@ -31,6 +31,12 @@ and then after this
 DDE_BACKEND=tensorflow python example/lorenz/lorenz_w_exogenous_stimulus.py
 ```
 
+### ONNX Converter
+
+```bash
+python -m tf2onnx.convert --saved-model generalized_patient --output model.onnx
+```
+
 ## Code Format
 
 ```bash
