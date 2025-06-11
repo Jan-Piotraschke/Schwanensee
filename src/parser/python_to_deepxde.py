@@ -5,39 +5,32 @@ import re
 
 
 def extract_parameters(source):
-    param_lines = [
-        line.strip()
-        for line in source.splitlines()
-        if re.match(r"^\w+\s*=\s*[\d.]+$", line)
-    ]
-    params = {}
-    for line in param_lines:
-        name, value = map(str.strip, line.split("="))
-        params[name] = float(value)
-    return params
+    """
+    Extracts constant assignments like `self.constants[0] = 8.0/3.0`
+    and maps them to C1, C2, C3, ...
+    """
+    matches = re.findall(r"self\.constants\[(\d+)\]\s*=\s*([^\n#]+)", source)
+    return {f"C{int(i)+1}": expr.strip() for i, expr in matches}
 
 
 def extract_initial_conditions(source):
+    """
+    Extracts x0 = [0.0, 1.0, 1.05] from the generated code.
+    """
     match = re.search(r"x0\s*=\s*\[(.*?)\]", source)
     if match:
         return [float(x.strip()) for x in match.group(1).split(",")]
     return []
 
 
-def convert_parameters_to_variables(param_dict):
-    return [f"{k} = dde.Variable(1.0)" for k in param_dict]
+def convert_initial_conditions_class(ic_list):
+    return [
+        f"        self.ic{i + 1} = dde.icbc.IC(self.geom, lambda X: {val}, self.boundary, component={i})"
+        for i, val in enumerate(ic_list)
+    ]
 
 
-def convert_initial_conditions(x0_list):
-    ic_lines = []
-    for i, val in enumerate(x0_list):
-        ic_lines.append(
-            f"ic{i + 1} = dde.icbc.IC(geom, lambda X: {val}, boundary, component={i})"
-        )
-    return ic_lines
-
-
-def parse_ode_to_deepxde(ode_function, param_dict):
+def parse_ode_to_deepxde_method(ode_function, param_dict):
     source = textwrap.dedent(inspect.getsource(ode_function))
     function_ast = ast.parse(source).body[0]
     param_names = [arg.arg for arg in function_ast.args.args]
@@ -45,13 +38,16 @@ def parse_ode_to_deepxde(ode_function, param_dict):
     state_vars = []
     body_lines = source.strip().split("\n")[1:]  # Skip def line
 
+    # Extract the first line that unpacks multiple variables (e.g., x, y, z = x)
     unpacking_line = next(
-        (line.strip() for line in body_lines if "=" in line and state_var_name in line),
-        "",
+        (line.strip() for line in body_lines if re.match(r"^\w+(, *\w+)+ *= *\w+", line.strip())),
+        ""
     )
     if unpacking_line:
-        vars_str = unpacking_line.split("=")[0].strip().strip("[] ")
-        state_vars = [v.strip() for v in vars_str.split(",")]
+        lhs = unpacking_line.split("=")[0].strip()
+        state_vars = [v.strip() for v in lhs.split(",")]
+    else:
+        raise ValueError("Could not find state unpacking line in ODE method.")
 
     return_var = None
     for line in body_lines:
@@ -80,91 +76,76 @@ def parse_ode_to_deepxde(ode_function, param_dict):
         equations = [eq.strip() for eq in code_block.split(",") if eq.strip()]
 
     lines = [
-        f"def ODE_system(x, y, ex):",
-        '    """Auto-generated DeepXDE system from ODE"""',
+        "    def ODE_system(self, x, y, ex):",
+        '        """Auto-generated DeepXDE system from ODE"""',
     ]
     for i, var in enumerate(state_vars):
-        lines.append(f"    {var} = y[:, {i}:{i + 1}]")
+        lines.append(f"        {var} = y[:, {i}:{i + 1}]")
     for i, var in enumerate(state_vars):
-        lines.append(f"    d{var}_x = dde.grad.jacobian(y, x, i={i})")
-    lines.append("    return [")
+        lines.append(f"        d{var}_x = dde.grad.jacobian(y, x, i={i})")
+
+    lines.append("        return [")
     for i, eq in enumerate(equations):
-        eq = eq.replace("**", "^")  # Optional formatting cleanup
-        for p in param_dict.keys():
-            eq = eq.replace(
-                p, f"C{i + 1}"
-            )  # Replace with generic DeepXDE variable name
-        lines.append(f"        d{state_vars[i]}_x - ({eq}),")
+        for j, (pname, _) in enumerate(param_dict.items()):
+            eq = eq.replace(pname, f"self.constants[{j}]")
+        lines.append(f"            d{state_vars[i]}_x - ({eq}),")
     lines[-1] = lines[-1].rstrip(",")
-    lines.append("    ]")
-    return "\n".join(lines)
+    lines.append("        ]")
+    return lines
 
 
 def generate_deepxde_script(module):
-    source = inspect.getsource(module)
-    param_dict = extract_parameters(source)
-    param_vars = convert_parameters_to_variables(param_dict)
-    x0_vals = extract_initial_conditions(source)
-    ic_lines = convert_initial_conditions(x0_vals)
-
-    # Get the actual ODE function from the module
-    ode_func = None
+    # Locate SyntheticDataGenerator class
+    generator_cls = None
     for name, val in module.__dict__.items():
-        if callable(val) and name == "ODE":
-            ode_func = val
+        if inspect.isclass(val) and name == "SyntheticDataGenerator":
+            generator_cls = val
             break
+    if not generator_cls:
+        raise ValueError("SyntheticDataGenerator class not found in module")
 
-    if not ode_func:
-        raise ValueError("ODE function not found in module")
+    # Get ODE method
+    try:
+        ode_func = getattr(generator_cls, "ODE")
+    except AttributeError:
+        raise ValueError("ODE method not found in SyntheticDataGenerator class")
 
-    ode_block = parse_ode_to_deepxde(ode_func, param_dict)
+    # Full source of class for constant extraction
+    class_source = inspect.getsource(generator_cls)
+    param_dict = extract_parameters(class_source)
+    x0_vals = extract_initial_conditions(class_source)
 
-    lines = (
-        [
-            "# ==========================================",
-            "# SECTION 2: PHYSICS MODEL DEFINITION",
-            "#",
-            "# This section defines the physical model",
-            "# with unknown parameters that we're trying to identify,",
-            "# including the system equations,",
-            "# boundary conditions (BC),",
-            "# and initial conditions (IC).",
-            "# ==========================================",
-            "# parameters to be identified",
-        ]
-        + param_vars
-        + [
-            "",
-            "# define system ODEs",
-            ode_block,
-            "",
-            "def boundary(_, on_initial):",
-            "    return on_initial",
-            "",
-            "# define time domain",
-            "geom = dde.geometry.TimeDomain(0, maxtime)",
-            "",
-            "# Initial conditions",
-        ]
-        + ic_lines
-        + [
-            "",
-            "# Get the training data",
-            "observe_t, ob_y = time, x",
-            "observe_y0 = dde.icbc.PointSetBC(observe_t, ob_y[:, 0:1], component=0)",
-            "observe_y1 = dde.icbc.PointSetBC(observe_t, ob_y[:, 1:2], component=1)",
-            "observe_y2 = dde.icbc.PointSetBC(observe_t, ob_y[:, 2:3], component=2)",
-        ]
-    )
+    ode_method_lines = parse_ode_to_deepxde_method(ode_func, param_dict)
+    ic_lines = convert_initial_conditions_class(x0_vals)
+
+    # Output script as class
+    lines = [
+        "# ==========================================",
+        "# SECTION 2: PHYSICS MODEL DEFINITION",
+        "#",
+        "# This section defines the physical model",
+        "# with unknown parameters that we're trying to identify,",
+        "# including the system equations,",
+        "# boundary conditions (BC),",
+        "# and initial conditions (IC).",
+        "# ==========================================",
+        "import deepxde as dde",
+        "import numpy as np",
+        "",
+        "class DeepXDESystem:",
+        "    def __init__(self, maxtime):",
+        f"        self.constants = [{', '.join('dde.Variable(1.0)' for _ in param_dict)}]",
+        "        self.geom = dde.geometry.TimeDomain(0, maxtime)",
+        "        self.boundary = lambda _, on_initial: on_initial",
+    ] + ic_lines + [""] + ode_method_lines + [
+        "",
+        "    def get_observations(self, time, x):",
+        "        observe_t, ob_y = time, x",
+        "        return [",
+        "            dde.icbc.PointSetBC(observe_t, ob_y[:, 0:1], component=0),",
+        "            dde.icbc.PointSetBC(observe_t, ob_y[:, 1:2], component=1),",
+        "            dde.icbc.PointSetBC(observe_t, ob_y[:, 2:3], component=2),",
+        "        ]",
+    ]
+
     return "\n".join(lines)
-
-
-# def test_parser():
-#     import synthetic_data_generator as sdg
-#     deepxde_code = generate_deepxde_script(sdg)
-
-#     with open("physio_sensai_model.py", "w") as f:
-#         f.write(deepxde_code)
-
-# # Run the test
-# test_parser()
