@@ -80,13 +80,13 @@ def parse_ode_to_deepxde_method(ode_function, param_dict):
         equations = [eq.strip() for eq in code_block.split(",") if eq.strip()]
 
     lines = [
-        "    def ODE_system(self, x, y, ex):",
+        "    def ODE_system(self, x_mat, y_mat, ex):",
         '        """Auto-generated DeepXDE system from ODE"""',
     ]
     for i, var in enumerate(state_vars):
-        lines.append(f"        {var} = y[:, {i}:{i + 1}]")
+        lines.append(f"        {var} = y_mat[:, {i}:{i + 1}]")
     for i, var in enumerate(state_vars):
-        lines.append(f"        d{var}_x = dde.grad.jacobian(y, x, i={i})")
+        lines.append(f"        d{var}_x = dde.grad.jacobian(y_mat, x_mat, i={i})")
 
     lines.append("        return [")
     for i, eq in enumerate(equations):
@@ -125,6 +125,7 @@ def generate_deepxde_script(module):
     # Output script as class
     lines = (
         [
+            "# === Auto-generated file. Do not modify! ===\n",
             "# ==========================================",
             "# SECTION 2: PHYSICS MODEL DEFINITION",
             "#",
