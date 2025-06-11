@@ -1,5 +1,6 @@
 import re
 
+
 def parse_opencor_to_python(opencor_code: str) -> str:
     # === Extract constants and their names ===
     const_names = re.findall(

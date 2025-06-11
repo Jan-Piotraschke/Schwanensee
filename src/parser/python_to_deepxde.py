@@ -10,7 +10,7 @@ def extract_parameters(source):
     and maps them to C1, C2, C3, ...
     """
     matches = re.findall(r"self\.constants\[(\d+)\]\s*=\s*([^\n#]+)", source)
-    return {f"C{int(i)+1}": expr.strip() for i, expr in matches}
+    return {f"C{int(i) + 1}": expr.strip() for i, expr in matches}
 
 
 def extract_initial_conditions(source):
@@ -40,8 +40,12 @@ def parse_ode_to_deepxde_method(ode_function, param_dict):
 
     # Extract the first line that unpacks multiple variables (e.g., x, y, z = x)
     unpacking_line = next(
-        (line.strip() for line in body_lines if re.match(r"^\w+(, *\w+)+ *= *\w+", line.strip())),
-        ""
+        (
+            line.strip()
+            for line in body_lines
+            if re.match(r"^\w+(, *\w+)+ *= *\w+", line.strip())
+        ),
+        "",
     )
     if unpacking_line:
         lhs = unpacking_line.split("=")[0].strip()
@@ -119,33 +123,39 @@ def generate_deepxde_script(module):
     ic_lines = convert_initial_conditions_class(x0_vals)
 
     # Output script as class
-    lines = [
-        "# ==========================================",
-        "# SECTION 2: PHYSICS MODEL DEFINITION",
-        "#",
-        "# This section defines the physical model",
-        "# with unknown parameters that we're trying to identify,",
-        "# including the system equations,",
-        "# boundary conditions (BC),",
-        "# and initial conditions (IC).",
-        "# ==========================================",
-        "import deepxde as dde",
-        "import numpy as np",
-        "",
-        "class DeepXDESystem:",
-        "    def __init__(self, maxtime):",
-        f"        self.constants = [{', '.join('dde.Variable(1.0)' for _ in param_dict)}]",
-        "        self.geom = dde.geometry.TimeDomain(0, maxtime)",
-        "        self.boundary = lambda _, on_initial: on_initial",
-    ] + ic_lines + [""] + ode_method_lines + [
-        "",
-        "    def get_observations(self, time, x):",
-        "        observe_t, ob_y = time, x",
-        "        return [",
-        "            dde.icbc.PointSetBC(observe_t, ob_y[:, 0:1], component=0),",
-        "            dde.icbc.PointSetBC(observe_t, ob_y[:, 1:2], component=1),",
-        "            dde.icbc.PointSetBC(observe_t, ob_y[:, 2:3], component=2),",
-        "        ]",
-    ]
+    lines = (
+        [
+            "# ==========================================",
+            "# SECTION 2: PHYSICS MODEL DEFINITION",
+            "#",
+            "# This section defines the physical model",
+            "# with unknown parameters that we're trying to identify,",
+            "# including the system equations,",
+            "# boundary conditions (BC),",
+            "# and initial conditions (IC).",
+            "# ==========================================",
+            "import deepxde as dde",
+            "import numpy as np",
+            "",
+            "class DeepXDESystem:",
+            "    def __init__(self, maxtime):",
+            f"        self.constants = [{', '.join('dde.Variable(1.0)' for _ in param_dict)}]",
+            "        self.geom = dde.geometry.TimeDomain(0, maxtime)",
+            "        self.boundary = lambda _, on_initial: on_initial",
+        ]
+        + ic_lines
+        + [""]
+        + ode_method_lines
+        + [
+            "",
+            "    def get_observations(self, time, x):",
+            "        observe_t, ob_y = time, x",
+            "        return [",
+            "            dde.icbc.PointSetBC(observe_t, ob_y[:, 0:1], component=0),",
+            "            dde.icbc.PointSetBC(observe_t, ob_y[:, 1:2], component=1),",
+            "            dde.icbc.PointSetBC(observe_t, ob_y[:, 2:3], component=2),",
+            "        ]",
+        ]
+    )
 
     return "\n".join(lines)
