@@ -28,7 +28,7 @@ python src/psai.py --python --input example/lorenz/generated/Lorenz_1963.py
 and then after this
 
 ```bash
-DDE_BACKEND=tensorflow python example/lorenz/lorenz_w_exogenous_stimulus.py
+DDE_BACKEND=tensorflow.compat.v1 python example/lorenz/lorenz_w_exogenous_stimulus.py
 ```
 
 ### ONNX Converter

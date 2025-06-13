@@ -1,6 +1,5 @@
-"""Backend supported: tensorflow.compat.v1, tensorflow, paddle
-
-https://deepxde.readthedocs.io/en/latest/demos/pinn_inverse/lorenz.inverse.forced.html
+"""
+# ! Currently, the number of features supported is: PaddlePaddle ≈ TensorFlow 1.x > TensorFlow 2.x ≈ PyTorch > JAX.
 """
 
 import deepxde as dde
@@ -13,6 +12,9 @@ import os
 from generated.synthetic_data_generator import SyntheticDataGenerator
 from generated.physio_sensai_model import DeepXDESystem
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+export_path = os.path.join(script_dir, "model", "generalized_patient")
+os.makedirs(os.path.dirname(export_path), exist_ok=True)
 
 # ===============================================
 # SECTION 1: DATA GENERATION & INPUT PREPARATION
@@ -86,14 +88,25 @@ data = dde.data.PDE(
 
 # define FNN architecture and compile
 net = dde.nn.FNN([1] + [40] * 3 + [3], "tanh", "Glorot uniform")
+
+# Build model and compile
 model = dde.Model(data, net)
 model.compile("adam", lr=0.001, external_trainable_variables=dxs.constants)
 
 # callbacks for storing results
 fnamevar = "variables.dat"
 variable = dde.callbacks.VariableValue(dxs.constants, period=100, filename=fnamevar)
+checkpointer = dde.callbacks.ModelCheckpoint(
+    "./checkpoints/lorenz", verbose=1, save_better_only=False, period=5000
+)
 
-model.train(iterations=35000, callbacks=[variable])
+# TODO: how to save the ckeckpoints at retraining, as the checkpoint shouldnt start at '0' again
+model.train(
+    iterations=0,
+    model_restore_path="./checkpoints/lorenz-5000.ckpt",
+    callbacks=[variable, checkpointer],
+)
+# model.train(iterations=35000 , callbacks=[variable, checkpointer])
 
 
 # ==========================================
@@ -104,6 +117,7 @@ model.train(iterations=35000, callbacks=[variable])
 # compares predicted vs actual trajectories,
 # and reports the trained model.
 # ==========================================
+# points_time = dxs.geom.uniform_points(100, True)
 yhat = model.predict(time)
 plt.figure()
 plt.plot(time, x, "-", time, yhat, "--")
@@ -112,7 +126,4 @@ plt.legend(["x", "y", "z", "xh", "yh", "zh"])
 plt.title("Training data")
 plt.show()
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-export_path = os.path.join(script_dir, "model", "generalized_patient")
-os.makedirs(os.path.dirname(export_path), exist_ok=True)
-model.net.export(export_path)
+# model.net.export(export_path)
