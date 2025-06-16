@@ -1,0 +1,38 @@
+@startuml modelDeployment
+skinparam Linetype ortho
+left to right direction
+
+package 2DTissue {
+  class MeshCartographyLib
+}
+
+package PhysioSensAI #FEC20C {
+  class PhysikInLoss
+
+  class 2DPatternPrediction
+
+  class TimeSeriesPrediction {
+    like a normal NN, but with Physics
+  }
+
+  class StabilityBifurkationAnalysis
+}
+
+class PhysikModell {
+  ODE / PDE based
+}
+
+class AnalogPC
+
+PhysikModell --> PhysikInLoss
+PhysikModell -[dashed]left-> AnalogPC : deploy ODE
+
+PhysikInLoss -right-> 2DPatternPrediction : PDE case
+PhysikInLoss --> TimeSeriesPrediction : ODE case
+TimeSeriesPrediction --> StabilityBifurkationAnalysis
+
+StabilityBifurkationAnalysis -[dashed]right-> AnalogPC  : deploy NN
+
+MeshCartographyLib <--> 2DPatternPrediction : 3D to 2D mapping
+
+@enduml
