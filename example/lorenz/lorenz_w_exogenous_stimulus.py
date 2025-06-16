@@ -102,8 +102,8 @@ checkpointer = dde.callbacks.ModelCheckpoint(
 
 # TODO: how to save the ckeckpoints at retraining, as the checkpoint shouldnt start at '0' again
 model.train(
-    iterations=0,
-    model_restore_path="./checkpoints/lorenz-5000.ckpt",
+    iterations=1,
+    model_restore_path="./checkpoints/lorenz-35000.ckpt",
     callbacks=[variable, checkpointer],
 )
 # model.train(iterations=35000 , callbacks=[variable, checkpointer])
@@ -127,3 +127,8 @@ plt.title("Training data")
 plt.show()
 
 # model.net.export(export_path)
+
+
+# https://deepxde.readthedocs.io/en/latest/modules/deepxde.html#module-deepxde.metrics
+# https://deepxde.readthedocs.io/en/stable/demos/pinn_inverse/diffusion.1d.inverse.html
+# TODO: using pinn for time and initial conditions depended prediction
