@@ -35,6 +35,10 @@ package psai_Approach {
     Model for simulating data
   }
 
+  class PINN {
+    Inputs: Time + Variables of Interest (e.g. IC)
+  }
+
   class TrainedPINN {
     C++ basiert
   }
@@ -56,7 +60,8 @@ package psai_Approach {
 
 CellML --> PythonPhysikModell : OpenCOR export
 PythonPhysikModell -> PhysioSensAI : DeepXDEParser
-PhysioSensAI --> TrainedPINN : onnx converter
+PhysioSensAI --> PINN
+PINN --> TrainedPINN : onnx converter
 CellML ---> PhysikModell : chaste_codegen converter
 CellML -left-o OpenCOR
 PhysikModell --> Deployment
