@@ -5,43 +5,24 @@ from scipy.integrate import odeint
 import matplotlib.pyplot as plt
 import os
 
+from generated.synthetic_data_generator import SyntheticDataGenerator
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 export_path = os.path.join(script_dir, "model", "lorenz_pinn")
 os.makedirs(os.path.dirname(export_path), exist_ok=True)
 
 # ===============================================
 # SECTION 1: DATA GENERATION & INPUT PREPARATION
+#
+# Simulated Physio Unobservable Data:
+# This section covers creating the synthetic data
+# from the Lorenz system using the true parameters
+# and preparing the input data.
+#
+# Observable Physio Data:
+# None
 # ===============================================
-
-# Define the Lorenz system ODE
-class SyntheticDataGenerator:
-    def __init__(self):
-        pass
-
-    def initConsts(self):
-        # Initial conditions
-        x0 = np.array([1.0, 0.0, 0.0])
-
-        # True parameter values
-        sigma = 10.0
-        rho = 28.0
-        beta = 8.0/3.0
-        constants = [sigma, rho, beta]
-
-        return x0, constants
-
-    def ODE(self, X, t):
-        """Lorenz system"""
-        x, y, z = X
-        sigma, rho, beta = 10.0, 28.0, 8.0/3.0
-
-        dx_dt = sigma * (y - x)
-        dy_dt = x * (rho - z) - y
-        dz_dt = x * y - beta * z
-
-        return [dx_dt, dy_dt, dz_dt]
-
-# Generate training data
+# time points
 maxtime = 3
 time_points = np.linspace(0, maxtime, 200)
 ex_input = 10 * np.sin(2 * np.pi * time_points)  # exogenous input
@@ -50,7 +31,6 @@ ex_input = 10 * np.sin(2 * np.pi * time_points)  # exogenous input
 sdg = SyntheticDataGenerator()
 x0, constants = sdg.initConsts()
 
-# Solve ODE to get ground truth data
 x_data = odeint(sdg.ODE, x0, time_points)
 time = time_points.reshape(-1, 1)
 
@@ -83,28 +63,32 @@ X_test, y_test = generate_training_data(10)   # 10 different initial conditions 
 
 # ==========================================
 # SECTION 2: PHYSICS MODEL DEFINITION
+#
+# This section defines the physical model
+# with unknown parameters that we're trying to identify,
+# including the system equations,
+# boundary conditions (BC),
+# and initial conditions (IC).
 # ==========================================
 
 class LorenzSystem:
     def __init__(self, t_min=0, t_max=maxtime):
         # Define domain: [t, x0, y0, z0]
         # Use approximate bounds for the initial conditions
-        x_min, x_max = -3, 5
-        y_min, y_max = -3, 5
-        z_min, z_max = -3, 5
+        # These bounds define the realistic space
+        # E.g. a concentration can never be negative, so min. value can't be smaller then 0
+        x_min, x_max = 0, 5
+        y_min, y_max = 0, 5
+        z_min, z_max = 0, 5
 
-        # 4D hypercube domain
+        # 4D hypercube domain for the case of IC as NN input
         self.geom = dde.geometry.Hypercube(
             [t_min, x_min, y_min, z_min],
             [t_max, x_max, y_max, z_max]
         )
 
         # Define constants (trainable parameters)
-        self.constants = [
-            dde.Variable(10.0),  # sigma
-            dde.Variable(28.0),  # rho
-            dde.Variable(8.0/3.0)  # beta
-        ]
+        self.constants = [dde.Variable(1.0), dde.Variable(1.0), dde.Variable(1.0)]
 
     def ODE_system(self, x, y):
         """
@@ -115,40 +99,31 @@ class LorenzSystem:
 
         Returns the residuals of the Lorenz system equations
         """
-        t = x[:, 0:1]
-        x0 = x[:, 1:2]  # Initial x value
-        y0 = x[:, 2:3]  # Initial y value
-        z0 = x[:, 3:4]  # Initial z value
+        # Current predicted values
+        x_val = y[:, 0:1]
+        y_val = y[:, 1:2]
+        z_val = y[:, 2:3]
 
         # Get the derivatives with respect to time
         dx_dt = dde.grad.jacobian(y, x, i=0, j=0)
         dy_dt = dde.grad.jacobian(y, x, i=1, j=0)
         dz_dt = dde.grad.jacobian(y, x, i=2, j=0)
 
-        # Current predicted values
-        x_val = y[:, 0:1]
-        y_val = y[:, 1:2]
-        z_val = y[:, 2:3]
-
-        # Lorenz system parameters
-        sigma, rho, beta = self.constants
-
-        # Residuals of the Lorenz equations
-        eq1 = dx_dt - sigma * (y_val - x_val)
-        eq2 = dy_dt - (x_val * (rho - z_val) - y_val)
-        eq3 = dz_dt - (x_val * y_val - beta * z_val)
-
-        return [eq1, eq2, eq3]
+        return [
+            dx_dt - (self.constants[2]*(y_val-x_val)),
+            dy_dt - (x_val*(self.constants[1]-z_val)-y_val),
+            dz_dt - (x_val*y_val-self.constants[0]*z_val)
+        ]
 
     def get_initial_conditions(self):
         """Create initial condition constraints for the neural network"""
         # Generate points specifically at t=0 for initial conditions
         # We'll manually create points with t=0 and various initial conditions
-        num_ic_points = 100
+        num_ic_points = 10
         ic_points = np.zeros((num_ic_points, 4))
         ic_points[:, 0] = 0  # t=0
         # Random initial conditions in the domain
-        ic_points[:, 1:] = np.random.uniform(-3, 5, (num_ic_points, 3))
+        ic_points[:, 1:] = np.random.uniform(0, 5, (num_ic_points, 3))
 
         # The values at these points should equal the initial conditions
         # Extract the initial conditions from the input points
@@ -194,7 +169,7 @@ data = dde.data.PDE(
 
 # Define neural network architecture
 # Input: [t, x0, y0, z0], Output: [x(t), y(t), z(t)]
-net = dde.nn.FNN([4] + [50] * 3 + [3], "tanh", "Glorot uniform")
+net = dde.nn.FNN([4] + [60] * 3 + [3], "tanh", "Glorot uniform")
 
 # Build model and compile
 model = dde.Model(data, net)
@@ -207,10 +182,10 @@ checkpointer = dde.callbacks.ModelCheckpoint(
     "./checkpoints/lorenz_pinn", verbose=1, save_better_only=True, period=1000
 )
 
-# # Train the model
-# losshistory, train_state = model.train(iterations=10000, callbacks=[variable, checkpointer])
+# Train the model
+# model.train(iterations=10000, callbacks=[variable, checkpointer])
 model.train(
-    iterations=1,
+    iterations=0,
     model_restore_path="./checkpoints/lorenz_pinn-10000.ckpt",
     callbacks=[variable, checkpointer],
 )
@@ -218,16 +193,10 @@ model.train(
 # ==========================================
 # SECTION 4: RESULTS ANALYSIS & MODEL EXPORT
 # ==========================================
-
-# Test the model on test data
-test_pred = model.predict(X_test)
-test_mse = np.mean((test_pred - y_test) ** 2)
-print(f"Test MSE: {test_mse:.6f}")
-
 # Generate predictions for visualization
 # Let's use the original initial condition to generate a trajectory
 t_vis = np.linspace(0, maxtime, 200)
-inputs_vis = np.column_stack((
+inputs = np.column_stack((
     t_vis,
     np.full(t_vis.shape, x0[0]),
     np.full(t_vis.shape, x0[1]),
@@ -235,61 +204,17 @@ inputs_vis = np.column_stack((
 ))
 
 # Get predictions
-predicted_trajectory = model.predict(inputs_vis)
+predicted_trajectory = model.predict(inputs)
 
 # Get ground truth for comparison
 true_trajectory = odeint(sdg.ODE, x0, t_vis)
 
-# Plot the results
-plt.figure(figsize=(15, 5))
-
-# X component
-plt.subplot(131)
-plt.plot(t_vis, true_trajectory[:, 0], 'b-', label='True x')
-plt.plot(t_vis, predicted_trajectory[:, 0], 'r--', label='Predicted x')
-plt.title('X Component')
-plt.xlabel('Time (t)')
-plt.legend()
-plt.grid(True)
-
-# Y component
-plt.subplot(132)
-plt.plot(t_vis, true_trajectory[:, 1], 'b-', label='True y')
-plt.plot(t_vis, predicted_trajectory[:, 1], 'r--', label='Predicted y')
-plt.title('Y Component')
-plt.xlabel('Time (t)')
-plt.legend()
-plt.grid(True)
-
-# Z component
-plt.subplot(133)
-plt.plot(t_vis, true_trajectory[:, 2], 'b-', label='True z')
-plt.plot(t_vis, predicted_trajectory[:, 2], 'r--', label='Predicted z')
-plt.title('Z Component')
-plt.xlabel('Time (t)')
-plt.legend()
-plt.grid(True)
-
-plt.tight_layout()
+plt.figure()
+plt.plot(t_vis, true_trajectory, "-", time, predicted_trajectory, "--")
+plt.xlabel("Time")
+plt.legend(["x", "y", "z", "xh", "yh", "zh"])
+plt.title("Training data")
 plt.show()
-
-# 3D phase portrait
-plt.figure(figsize=(10, 8))
-ax = plt.axes(projection='3d')
-ax.plot3D(true_trajectory[:, 0], true_trajectory[:, 1], true_trajectory[:, 2], 'b-', label='True')
-ax.plot3D(predicted_trajectory[:, 0], predicted_trajectory[:, 1], predicted_trajectory[:, 2], 'r--', label='Predicted')
-ax.set_title('Lorenz Attractor: True vs Predicted')
-ax.set_xlabel('X')
-ax.set_ylabel('Y')
-ax.set_zlabel('Z')
-ax.legend()
-plt.show()
-
-
-# Plot loss history
-# dde.utils.plot_loss_history(losshistory)
-# plt.title("Loss history")
-# plt.show()
 
 # Save the model
 model.save(export_path)
