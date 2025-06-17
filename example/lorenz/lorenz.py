@@ -23,8 +23,8 @@ os.makedirs(os.path.dirname(export_path), exist_ok=True)
 # None
 # ===============================================
 # time points
-maxtime = 3
-time_points = np.linspace(0, maxtime, 200)
+maxtime = 2
+time_points = np.linspace(0, maxtime, 150)
 ex_input = 10 * np.sin(2 * np.pi * time_points)  # exogenous input
 
 # Initialize with synthetic data
@@ -89,7 +89,8 @@ class DeepXDESystem:
         )
 
         # Define constants (trainable parameters)
-        self.constants = [dde.Variable(1.0), dde.Variable(1.0), dde.Variable(1.0)]
+        # [Tip:] Start with the median Physio parameters
+        self.constants = [dde.Variable(2.5), dde.Variable(25.0), dde.Variable(8.0)]
         self.boundary = lambda _, on_boundary: on_boundary
 
     def ODE_system(self, x, y):
@@ -145,18 +146,19 @@ data = dde.data.PDE(
     dxs.geom,
     dxs.ODE_system,
     observation_handle,
-    num_domain=400,
+    num_domain=1000,
     num_boundary=0,
     anchors=X_train,
 )
 
 # Define neural network architecture
 # Input: [t, x0, y0, z0], Output: [x(t), y(t), z(t)]
-net = dde.nn.FNN([4] + [40] * 3 + [3], "tanh", "Glorot uniform")
+net = dde.nn.FNN([4] + [64] * 6 + [3], "tanh", "Glorot uniform")
 
 # Build model and compile
 model = dde.Model(data, net)
-model.compile("adam", lr=0.001, external_trainable_variables=dxs.constants)
+model.compile("adam", lr=0.001, external_trainable_variables=dxs.constants,
+              loss_weights=[1, 1, 1, 10, 10, 10])
 
 # Callbacks for storing results
 fnamevar = "variables.dat"
@@ -164,9 +166,10 @@ variable = dde.callbacks.VariableValue(dxs.constants, period=100, filename=fname
 checkpointer = dde.callbacks.ModelCheckpoint(
     "./checkpoints/lorenz_pinn", verbose=1, save_better_only=True, period=1000
 )
+early_stopping = dde.callbacks.EarlyStopping(min_delta=1e-2, patience=1000)
 
 # Train the model
-# model.train(iterations=10000, callbacks=[variable, checkpointer])
+# model.train(iterations=10000, callbacks=[variable, checkpointer, early_stopping])
 model.train(
     iterations=0,
     model_restore_path="./checkpoints/lorenz_pinn-10000.ckpt",
