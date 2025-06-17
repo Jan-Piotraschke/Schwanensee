@@ -31,7 +31,7 @@ ex_input = 10 * np.sin(2 * np.pi * time_points)  # exogenous input
 sdg = SyntheticDataGenerator()
 x0, constants = sdg.initConsts()
 
-x_data = odeint(sdg.ODE, x0, time_points)
+physio_data = odeint(sdg.ODE, x0, time_points)
 time = time_points.reshape(-1, 1)
 
 # Generate training data pairs with different initial conditions
@@ -71,15 +71,16 @@ X_test, y_test = generate_training_data(10)   # 10 different initial conditions 
 # and initial conditions (IC).
 # ==========================================
 
-class LorenzSystem:
+class DeepXDESystem:
     def __init__(self, t_min=0, t_max=maxtime):
         # Define domain: [t, x0, y0, z0]
         # Use approximate bounds for the initial conditions
         # These bounds define the realistic space
         # E.g. a concentration can never be negative, so min. value can't be smaller then 0
-        x_min, x_max = 0, 5
-        y_min, y_max = 0, 5
-        z_min, z_max = 0, 5
+        # Here some realistic boundaries for the Lorenz system
+        x_min, x_max = -20, 20
+        y_min, y_max = -30, 30
+        z_min, z_max = 0, 50
 
         # 4D hypercube domain for the case of IC as NN input
         self.geom = dde.geometry.Hypercube(
@@ -89,6 +90,7 @@ class LorenzSystem:
 
         # Define constants (trainable parameters)
         self.constants = [dde.Variable(1.0), dde.Variable(1.0), dde.Variable(1.0)]
+        self.boundary = lambda _, on_boundary: on_boundary
 
     def ODE_system(self, x, y):
         """
@@ -115,31 +117,11 @@ class LorenzSystem:
             dz_dt - (x_val*y_val-self.constants[0]*z_val)
         ]
 
-    def get_initial_conditions(self):
-        """Create initial condition constraints for the neural network"""
-        # Generate points specifically at t=0 for initial conditions
-        # We'll manually create points with t=0 and various initial conditions
-        num_ic_points = 10
-        ic_points = np.zeros((num_ic_points, 4))
-        ic_points[:, 0] = 0  # t=0
-        # Random initial conditions in the domain
-        ic_points[:, 1:] = np.random.uniform(0, 5, (num_ic_points, 3))
-
-        # The values at these points should equal the initial conditions
-        # Extract the initial conditions from the input points
-        ic1_values = ic_points[:, 1:2]  # x0 values
-        ic2_values = ic_points[:, 2:3]  # y0 values
-        ic3_values = ic_points[:, 3:4]  # z0 values
-
-        # Create IC constraints with actual values
-        ic1 = dde.icbc.PointSetBC(ic_points, ic1_values, component=0)
-        ic2 = dde.icbc.PointSetBC(ic_points, ic2_values, component=1)
-        ic3 = dde.icbc.PointSetBC(ic_points, ic3_values, component=2)
-
-        return [ic1, ic2, ic3]
-
     def get_observations(self, X, y):
-        """Creates observation points for training"""
+        """Creates observation points for training based on 'real' data
+
+        Logic: "At point 'X' the output should be 'y'"
+        """
         return [
             dde.icbc.PointSetBC(X, y[:, 0:1], component=0),
             dde.icbc.PointSetBC(X, y[:, 1:2], component=1),
@@ -147,37 +129,38 @@ class LorenzSystem:
         ]
 
 # Create system
-lorenz_system = LorenzSystem()
+dxs = DeepXDESystem()
+observation_handle = dxs.get_observations(X_train, y_train)
+
 
 # =============================================
-# SECTION 3: NEURAL NETWORK DESIGN & TRAINING
+# SECTION 3: NEURAL NETWORK DESING & TRAINING
+#
+# This section sets up the neural network architecture,
+# compiles the model,
+# and trains it to learn the parameters.
 # =============================================
-
-# Get the training observations and initial conditions
-observation_points = lorenz_system.get_observations(X_train, y_train)
-initial_conditions = lorenz_system.get_initial_conditions()
-
-# Define the data object - combining physics constraints with data
+# Define data object
 data = dde.data.PDE(
-    lorenz_system.geom,
-    lorenz_system.ODE_system,
-    initial_conditions + observation_points,  # Both ICs and data points
-    num_domain=500,  # Collocation points for enforcing PDEs
-    num_boundary=100,  # Points on the boundary
-    anchors=X_train,  # Include training points in collocation
+    dxs.geom,
+    dxs.ODE_system,
+    observation_handle,
+    num_domain=400,
+    num_boundary=0,
+    anchors=X_train,
 )
 
 # Define neural network architecture
 # Input: [t, x0, y0, z0], Output: [x(t), y(t), z(t)]
-net = dde.nn.FNN([4] + [60] * 3 + [3], "tanh", "Glorot uniform")
+net = dde.nn.FNN([4] + [40] * 3 + [3], "tanh", "Glorot uniform")
 
 # Build model and compile
 model = dde.Model(data, net)
-model.compile("adam", lr=0.001, external_trainable_variables=lorenz_system.constants)
+model.compile("adam", lr=0.001, external_trainable_variables=dxs.constants)
 
 # Callbacks for storing results
-fnamevar = "lorenz_variables.dat"
-variable = dde.callbacks.VariableValue(lorenz_system.constants, period=100, filename=fnamevar)
+fnamevar = "variables.dat"
+variable = dde.callbacks.VariableValue(dxs.constants, period=100, filename=fnamevar)
 checkpointer = dde.callbacks.ModelCheckpoint(
     "./checkpoints/lorenz_pinn", verbose=1, save_better_only=True, period=1000
 )
@@ -192,29 +175,27 @@ model.train(
 
 # ==========================================
 # SECTION 4: RESULTS ANALYSIS & MODEL EXPORT
+#
+# This section analyzes the results,
+# visualizes the parameter convergence,
+# compares predicted vs actual trajectories,
+# and reports the trained model.
 # ==========================================
 # Generate predictions for visualization
 # Let's use the original initial condition to generate a trajectory
-t_vis = np.linspace(0, maxtime, 200)
-inputs = np.column_stack((
-    t_vis,
-    np.full(t_vis.shape, x0[0]),
-    np.full(t_vis.shape, x0[1]),
-    np.full(t_vis.shape, x0[2])
+input = np.column_stack((
+    time,
+    np.full(time.shape, x0[0]),
+    np.full(time.shape, x0[1]),
+    np.full(time.shape, x0[2])
 ))
 
-# Get predictions
-predicted_trajectory = model.predict(inputs)
-
-# Get ground truth for comparison
-true_trajectory = odeint(sdg.ODE, x0, t_vis)
-
+time_series_prediction = model.predict(input)
 plt.figure()
-plt.plot(t_vis, true_trajectory, "-", time, predicted_trajectory, "--")
+plt.plot(time, physio_data, "-", time, time_series_prediction, "--")
 plt.xlabel("Time")
 plt.legend(["x", "y", "z", "xh", "yh", "zh"])
 plt.title("Training data")
 plt.show()
 
-# Save the model
 model.save(export_path)
