@@ -61,6 +61,13 @@ def generate_training_data(num_samples=100):
 X_train, y_train = generate_training_data(50)  # 50 different initial conditions
 X_test, y_test = generate_training_data(10)   # 10 different initial conditions for testing
 
+# Normalization
+# Xmean, Xstd = X_train.mean(0, keepdims=True), X_train.std(0, keepdims=True)
+# ymean, ystd = y_train.mean(0, keepdims=True), y_train.std(0, keepdims=True)
+# X_train = (X_train - Xmean)/Xstd
+# y_train = (y_train - ymean)/ystd
+
+
 # ==========================================
 # SECTION 2: PHYSICS MODEL DEFINITION
 #
@@ -112,6 +119,9 @@ class DeepXDESystem:
         dy_dt = dde.grad.jacobian(y, x, i=1, j=0)
         dz_dt = dde.grad.jacobian(y, x, i=2, j=0)
 
+        # Return the PDE residuals
+        # Each residual represents how well the physics equation are satisfied
+        # Returning a '0' means perfectly satisfied but could also result in an over-fit
         return [
             dx_dt - (self.constants[2]*(y_val-x_val)),
             dy_dt - (x_val*(self.constants[1]-z_val)-y_val),
@@ -153,12 +163,15 @@ data = dde.data.PDE(
 
 # Define neural network architecture
 # Input: [t, x0, y0, z0], Output: [x(t), y(t), z(t)]
-net = dde.nn.FNN([4] + [64] * 6 + [3], "tanh", "Glorot uniform")
+net = dde.nn.FNN([4] + [64] * 5 + [3], "tanh", "Glorot uniform")
 
 # Build model and compile
 model = dde.Model(data, net)
+# We have 3 weights for data fitting and 3 weights for alligning with the 3 physic equations
+# We need to prevent the physics residuals from dominating the data fitting, as our Physio Model can't be perfect
+loss_weights = [1, 1, 1] + [1, 1, 1]  # data weights + physics residual weights
 model.compile("adam", lr=0.001, external_trainable_variables=dxs.constants,
-              loss_weights=[1, 1, 1, 10, 10, 10])
+              loss_weights=loss_weights)
 
 # Callbacks for storing results
 fnamevar = "variables.dat"
@@ -169,12 +182,15 @@ checkpointer = dde.callbacks.ModelCheckpoint(
 early_stopping = dde.callbacks.EarlyStopping(min_delta=1e-2, patience=1000)
 
 # Train the model
-# model.train(iterations=10000, callbacks=[variable, checkpointer, early_stopping])
-model.train(
-    iterations=0,
-    model_restore_path="./checkpoints/lorenz_pinn-10000.ckpt",
-    callbacks=[variable, checkpointer],
-)
+model.train(iterations=4000, callbacks=[variable, checkpointer, early_stopping])
+# model.train(
+#     iterations=0,
+#     model_restore_path="./checkpoints/lorenz_pinn-4000.ckpt",
+#     callbacks=[variable, checkpointer],
+# )
+
+# model.compile("L-BFGS", external_trainable_variables=dxs.constants)
+# model.train(iterations=1000, callbacks=[variable, checkpointer, early_stopping])
 
 # ==========================================
 # SECTION 4: RESULTS ANALYSIS & MODEL EXPORT
