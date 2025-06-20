@@ -28,8 +28,22 @@ python src/psai.py --python --input example/lorenz/generated/Lorenz_1963.py
 and then after this
 
 ```bash
+DDE_BACKEND=tensorflow.compat.v1 python example/lorenz/lorenz.py
 DDE_BACKEND=tensorflow.compat.v1 python example/lorenz/lorenz_w_exogenous_stimulus.py
 ```
+
+or as a starter a simple sine wave
+
+```bash
+DDE_BACKEND=tensorflow.compat.v1 python example/sine/sine.py
+```
+
+### Different Physio Sensai Model Levels
+
+```lv1``` gets used, if the user does not have multiple data time series. For this case, the initial conditions are known and can get hardcoded into the physio physics models. This improves the speed of parameter fitting, but (because of the sparse amout of time series data) could find a not generally suitable parameter set.
+
+```lv2``` gets used in the case, that the user has multiple data time series at hand. The initial conditions in this case are variable and an input into the PINN, while finding a suitable set of parameters for the physio model.
+
 
 ### ONNX Converter
 
