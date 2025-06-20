@@ -58,6 +58,7 @@ def generate_training_data(num_samples=100):
 
 # Generate training and test data
 X_train, y_train = generate_training_data(50)  # 50 different initial conditions
+X_test, y_test = generate_training_data(10)  # 50 different initial conditions
 
 
 # ==========================================

@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import os
 
 from generated.synthetic_data_generator import SyntheticDataGenerator
-from generated.physio_sensai_model import DeepXDESystem
+from generated.physio_sensai_model_lv1 import DeepXDESystem
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 export_path = os.path.join(script_dir, "model", "generalized_patient")
@@ -19,12 +19,12 @@ os.makedirs(os.path.dirname(export_path), exist_ok=True)
 # ===============================================
 # SECTION 1: DATA GENERATION & INPUT PREPARATION
 #
-# Simulated Unobservable Data:
+# Simulated Physio Unobservable Data:
 # This section covers creating the synthetic data
 # from the Lorenz system using the true parameters
 # and preparing the input data.
 #
-# Observable Data:
+# Observable Physio Data:
 # None
 # ===============================================
 # time points
@@ -118,15 +118,15 @@ model.train(
 # and reports the trained model.
 # ==========================================
 # points_time = dxs.geom.uniform_points(100, True)
-yhat = model.predict(time)
+time_series_prediction = model.predict(time)
 plt.figure()
-plt.plot(time, x, "-", time, yhat, "--")
+plt.plot(time, x, "-", time, time_series_prediction, "--")
 plt.xlabel("Time")
 plt.legend(["x", "y", "z", "xh", "yh", "zh"])
 plt.title("Training data")
 plt.show()
 
-# model.net.export(export_path)
+model.save(export_path)
 
 
 # https://deepxde.readthedocs.io/en/latest/modules/deepxde.html#module-deepxde.metrics
