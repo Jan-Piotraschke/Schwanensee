@@ -1,6 +1,5 @@
 import deepxde as dde
 import numpy as np
-import scipy as sp
 from scipy.integrate import odeint
 import matplotlib.pyplot as plt
 import os
@@ -59,13 +58,6 @@ def generate_training_data(num_samples=100):
 
 # Generate training and test data
 X_train, y_train = generate_training_data(50)  # 50 different initial conditions
-X_test, y_test = generate_training_data(10)   # 10 different initial conditions for testing
-
-# Normalization
-# Xmean, Xstd = X_train.mean(0, keepdims=True), X_train.std(0, keepdims=True)
-# ymean, ystd = y_train.mean(0, keepdims=True), y_train.std(0, keepdims=True)
-# X_train = (X_train - Xmean)/Xstd
-# y_train = (y_train - ymean)/ystd
 
 
 # ==========================================
@@ -96,7 +88,7 @@ class DeepXDESystem:
         )
 
         # Define constants (trainable parameters)
-        # [Tip:] Start with the median Physio parameters
+        # [Tipp:] Start with the median Physio parameters
         self.constants = [dde.Variable(2.5), dde.Variable(25.0), dde.Variable(8.0)]
         self.boundary = lambda _, on_boundary: on_boundary
 
@@ -174,7 +166,8 @@ model.compile("adam", lr=0.001, external_trainable_variables=dxs.constants,
               loss_weights=loss_weights)
 
 # Callbacks for storing results
-fnamevar = "variables.dat"
+# ! You can re-analyse the impact of each physio parameter using your physic model analytical
+fnamevar = "simulated_physio_parameters.dat"
 variable = dde.callbacks.VariableValue(dxs.constants, period=100, filename=fnamevar)
 checkpointer = dde.callbacks.ModelCheckpoint(
     "./checkpoints/lorenz_pinn", verbose=1, save_better_only=True, period=1000
@@ -191,6 +184,7 @@ model.train(iterations=4000, callbacks=[variable, checkpointer, early_stopping])
 
 # model.compile("L-BFGS", external_trainable_variables=dxs.constants)
 # model.train(iterations=1000, callbacks=[variable, checkpointer, early_stopping])
+
 
 # ==========================================
 # SECTION 4: RESULTS ANALYSIS & MODEL EXPORT
