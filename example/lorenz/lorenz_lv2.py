@@ -33,6 +33,7 @@ x0, constants = sdg.initConsts()
 physio_data = odeint(sdg.ODE, x0, time_points)
 time = time_points.reshape(-1, 1)
 
+
 # Generate training data pairs with different initial conditions
 def generate_training_data(num_samples=100):
     # Generate varied initial conditions around x0
@@ -50,11 +51,14 @@ def generate_training_data(num_samples=100):
         # Store data points from this trajectory
         for j in range(len(time_points)):
             # Input: [t, x0, y0, z0]
-            time_samples.append([time_points[j], x0_samples[i][0], x0_samples[i][1], x0_samples[i][2]])
+            time_samples.append(
+                [time_points[j], x0_samples[i][0], x0_samples[i][1], x0_samples[i][2]]
+            )
             # Output: [x(t), y(t), z(t)]
             trajectory_data.append(trajectory[j])
 
     return np.array(time_samples), np.array(trajectory_data)
+
 
 # Generate training and test data
 X_train, y_train = generate_training_data(50)  # 50 different initial conditions
@@ -71,6 +75,7 @@ X_test, y_test = generate_training_data(10)  # 50 different initial conditions
 # and initial conditions (IC).
 # ==========================================
 
+
 class DeepXDESystem:
     def __init__(self, t_min=0, t_max=maxtime):
         # Define domain: [t, x0, y0, z0]
@@ -84,8 +89,7 @@ class DeepXDESystem:
 
         # 4D hypercube domain for the case of IC as NN input
         self.geom = dde.geometry.Hypercube(
-            [t_min, x_min, y_min, z_min],
-            [t_max, x_max, y_max, z_max]
+            [t_min, x_min, y_min, z_min], [t_max, x_max, y_max, z_max]
         )
 
         # Define constants (trainable parameters)
@@ -116,9 +120,9 @@ class DeepXDESystem:
         # Each residual represents how well the physics equation are satisfied
         # Returning a '0' means perfectly satisfied but could also result in an over-fit
         return [
-            dx_dt - (self.constants[2]*(y_val-x_val)),
-            dy_dt - (x_val*(self.constants[1]-z_val)-y_val),
-            dz_dt - (x_val*y_val-self.constants[0]*z_val)
+            dx_dt - (self.constants[2] * (y_val - x_val)),
+            dy_dt - (x_val * (self.constants[1] - z_val) - y_val),
+            dz_dt - (x_val * y_val - self.constants[0] * z_val),
         ]
 
     def get_observations(self, X, y):
@@ -129,8 +133,9 @@ class DeepXDESystem:
         return [
             dde.icbc.PointSetBC(X, y[:, 0:1], component=0),
             dde.icbc.PointSetBC(X, y[:, 1:2], component=1),
-            dde.icbc.PointSetBC(X, y[:, 2:3], component=2)
+            dde.icbc.PointSetBC(X, y[:, 2:3], component=2),
         ]
+
 
 # Create system
 dxs = DeepXDESystem()
@@ -156,15 +161,28 @@ data = dde.data.PDE(
 
 # Define neural network architecture
 # Input: [t, x0, y0, z0], Output: [x(t), y(t), z(t)]
-net = dde.nn.FNN([4] + [64] * 5 + [3], "tanh", "Glorot uniform")
+layer_sizes = [4] + [64] * 5 + [3]
+activation = "tanh"
+kernel_initializer = "Glorot uniform"
+dropout_rate = 0.1  # 10% dropout rate
+net = dde.nn.FNN(
+    layer_sizes=layer_sizes,
+    activation=activation,
+    kernel_initializer=kernel_initializer,
+    dropout_rate=dropout_rate
+)
 
 # Build model and compile
 model = dde.Model(data, net)
 # We have 3 weights for data fitting and 3 weights for alligning with the 3 physic equations
 # We need to prevent the physics residuals from dominating the data fitting, as our Physio Model can't be perfect
 loss_weights = [1, 1, 1] + [1, 1, 1]  # data weights + physics residual weights
-model.compile("adam", lr=0.001, external_trainable_variables=dxs.constants,
-              loss_weights=loss_weights)
+model.compile(
+    "adam",
+    lr=0.001,
+    external_trainable_variables=dxs.constants,
+    loss_weights=loss_weights,
+)
 
 # Callbacks for storing results
 # ! You can re-analyse the impact of each physio parameter using your physic model analytical
@@ -179,12 +197,13 @@ early_stopping = dde.callbacks.EarlyStopping(min_delta=1e-2, patience=1000)
 model.train(iterations=4000, callbacks=[variable, checkpointer, early_stopping])
 # model.train(
 #     iterations=0,
-#     model_restore_path="./checkpoints/lorenz_pinn-4000.ckpt",
+#     model_restore_path="./checkpoints/lorenz_pinn-5000.ckpt",
 #     callbacks=[variable, checkpointer],
 # )
 
+# model.compile("L-BFGS-B", lr=1.0e-5, loss_weights=loss_weights)
 # model.compile("L-BFGS", external_trainable_variables=dxs.constants)
-# model.train(iterations=1000, callbacks=[variable, checkpointer, early_stopping])
+# model.train(iterations=10000, callbacks=[checkpointer, early_stopping])
 
 
 # ==========================================
@@ -197,12 +216,14 @@ model.train(iterations=4000, callbacks=[variable, checkpointer, early_stopping])
 # ==========================================
 # Generate predictions for visualization
 # Let's use the original initial condition to generate a trajectory
-input = np.column_stack((
-    time,
-    np.full(time.shape, x0[0]),
-    np.full(time.shape, x0[1]),
-    np.full(time.shape, x0[2])
-))
+input = np.column_stack(
+    (
+        time,
+        np.full(time.shape, x0[0]),
+        np.full(time.shape, x0[1]),
+        np.full(time.shape, x0[2]),
+    )
+)
 
 time_series_prediction = model.predict(input)
 plt.figure()
