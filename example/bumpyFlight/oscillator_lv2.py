@@ -25,33 +25,42 @@ def elevated_damped_oscillator_ode(t, state):
     x, y = state
 
     # System parameters
-    alpha = 2.0  # Initial growth rate
-    beta = 0.5  # Damping factor
-    omega = 2.0  # Angular frequency
-    r0 = 1.0  # Target radius for limit cycle
-    tau = 1.5  # Time constant for transition
-    y_offset = 3.0  # Elevation offset
+    altitude_requested = 4.0  # Elevation offset
+    altitude_transition_time = 1.5  # Time constant for transition
+    climb_response = 2.0  # How quickly the system reacts to climb commands
+    damping_ratio = 0.5  # Damping factor
+    bumpy_hz = 4.0  # Angular frequency
+    bumpy_r0 = 0.3  # Target radius for limit cycle
 
     # Calculate position relative to elevated center point
     x_rel = x
-    y_rel = y - y_offset * (1 - np.exp(-t / tau))
+    y_rel = y - altitude_requested * (1 - np.exp(-t / altitude_transition_time))
 
     # Calculate radius from elevated center
     r = np.sqrt(x_rel**2 + y_rel**2)
 
     # Time-dependent damping - initially negative (growth), then positive (damping)
-    effective_damping = beta * (1 - np.exp(-t / tau))
+    effective_damping = damping_ratio * (1 - np.exp(-t / altitude_transition_time))
 
     # Modified dynamics with initial growth and transition to limit cycle
     dx_dt = (
-        alpha * np.exp(-t / tau) - effective_damping * (r - r0)
-    ) * x_rel - omega * y_rel
+        climb_response * np.exp(-t / altitude_transition_time)
+        - effective_damping * (r - bumpy_r0)
+    ) * x_rel - bumpy_hz * y_rel
 
     # Additional term for the vertical rise
-    elevation_rate = y_offset * np.exp(-t / tau) / tau
+    elevation_rate = (
+        altitude_requested
+        * np.exp(-t / altitude_transition_time)
+        / altitude_transition_time
+    )
     dy_dt = (
-        (alpha * np.exp(-t / tau) - effective_damping * (r - r0)) * y_rel
-        + omega * x_rel
+        (
+            climb_response * np.exp(-t / altitude_transition_time)
+            - effective_damping * (r - bumpy_r0)
+        )
+        * y_rel
+        + bumpy_hz * x_rel
         + elevation_rate
     )
 
@@ -61,8 +70,8 @@ def elevated_damped_oscillator_ode(t, state):
 # Generate training data with numerical integration
 def generate_data(num_samples=5000, t_max=20.0):
     # Generate various initial conditions (near origin) and time points
-    x0_values = np.random.uniform(-0.2, 0.2, num_samples)
-    y0_values = np.random.uniform(-0.2, 0.2, num_samples)
+    x0_values = np.random.uniform(-0.3, 0.3, num_samples)
+    y0_values = np.random.uniform(-0.3, 0.3, num_samples)
     t_values = np.random.uniform(0, t_max, num_samples)
 
     # For each sample, solve ODE from initial condition up to the requested time
@@ -110,19 +119,19 @@ print("Data generation complete!")
 
 
 class ElevatedDampedOscillatorSystem:
-    def __init__(self, t_min=0, t_max=20.0, xy_min=-3.0, xy_max=3.0):
+    def __init__(self, t_min=0, t_max=20.0, xy_min=-1.0, xy_max=5.0):
         # Define domain: time and initial values (x0, y0)
         self.geom = dde.geometry.Cuboid(
             [t_min, xy_min, xy_min], [t_max, xy_max, xy_max]
         )
 
         # System parameters
-        self.alpha = 2.0  # Initial growth rate
-        self.beta = 0.5  # Damping factor
-        self.omega = 2.0  # Angular frequency
-        self.r0 = 1.0  # Target radius for limit cycle
-        self.tau = 1.5  # Time constant for transition
-        self.y_offset = 3.0  # Elevation offset
+        self.climb_response = 2.0  # Initial growth rate
+        self.damping_ratio = 0.5  # Damping factor
+        self.bumpy_hz = 4.0  # Angular frequency
+        self.bumpy_r0 = 0.3  # Target radius for limit cycle
+        self.altitude_transition_time = 1.5  # Time constant for transition
+        self.altitude_requested = 4.0  # Elevation offset
 
     def ODE_system(self, x, y):
         """
@@ -137,38 +146,48 @@ class ElevatedDampedOscillatorSystem:
 
         # Calculate position relative to elevated center point
         x_rel = x_pred
-        y_rel = y_pred - self.y_offset * (1 - dde.backend.exp(-t / self.tau))
+        y_rel = y_pred - self.altitude_requested * (
+            1 - dde.backend.exp(-t / self.altitude_transition_time)
+        )
 
         # Calculate radius from elevated center
         r = dde.backend.tf.sqrt(x_rel**2 + y_rel**2)
 
         # Time-dependent damping - initially negative (growth), then positive (damping)
-        effective_damping = self.beta * (1 - dde.backend.exp(-t / self.tau))
+        effective_damping = self.damping_ratio * (
+            1 - dde.backend.exp(-t / self.altitude_transition_time)
+        )
 
         # Compute derivatives with respect to time
         dx_dt = dde.grad.jacobian(y, x, i=0, j=0)  # dx/dt
         dy_dt = dde.grad.jacobian(y, x, i=1, j=0)  # dy/dt
 
         # Additional term for the vertical rise
-        elevation_rate = self.y_offset * dde.backend.exp(-t / self.tau) / self.tau
+        elevation_rate = (
+            self.altitude_requested
+            * dde.backend.exp(-t / self.altitude_transition_time)
+            / self.altitude_transition_time
+        )
 
         # Modified oscillator equations
         eq1 = dx_dt - (
             (
-                self.alpha * dde.backend.exp(-t / self.tau)
-                - effective_damping * (r - self.r0)
+                self.climb_response
+                * dde.backend.exp(-t / self.altitude_transition_time)
+                - effective_damping * (r - self.bumpy_r0)
             )
             * x_rel
-            - self.omega * y_rel
+            - self.bumpy_hz * y_rel
         )
 
         eq2 = dy_dt - (
             (
-                self.alpha * dde.backend.exp(-t / self.tau)
-                - effective_damping * (r - self.r0)
+                self.climb_response
+                * dde.backend.exp(-t / self.altitude_transition_time)
+                - effective_damping * (r - self.bumpy_r0)
             )
             * y_rel
-            + self.omega * x_rel
+            + self.bumpy_hz * x_rel
             + elevation_rate
         )
 
@@ -199,17 +218,17 @@ data = dde.data.PDE(
     system.geom,
     system.ODE_system,
     observation_points,  # Training data points
-    num_domain=2000,  # Number of collocation points for ODE
+    num_domain=4000,  # Number of collocation points for ODE
     num_boundary=200,  # Number of points on the boundary
     anchors=X_train,  # Include training points in collocation
 )
 
 # Define neural network architecture
 # Input: [t, x0, y0], Output: predicted [x, y]
-layer_sizes = [3] + [108] * 4 + [2]
+layer_sizes = [3] + [84] * 5 + [2]
 activation = "tanh"
 kernel_initializer = "Glorot uniform"
-dropout_rate = 0.01
+dropout_rate = 0.03
 net = dde.nn.FNN(
     layer_sizes=layer_sizes,
     activation=activation,
@@ -236,7 +255,7 @@ checkpointer = dde.callbacks.ModelCheckpoint(
     period=1000,
 )
 
-ITERATIONS = 10000
+ITERATIONS = 1000
 
 # Train the model
 model.train(iterations=ITERATIONS, callbacks=[checkpointer])
@@ -295,7 +314,9 @@ def visualize_trajectory(x0, y0, t_max=15.0, num_points=500):
     y_true = sol.y[1]
 
     # Calculate distance from the elevated center
-    y_center = system.y_offset * (1 - np.exp(-t_values / system.tau))
+    y_center = system.altitude_requested * (
+        1 - np.exp(-t_values / system.altitude_transition_time)
+    )
     r_pred = np.sqrt(x_pred**2 + (y_pred - y_center) ** 2)
     r_true = np.sqrt(x_true**2 + (y_true - y_center) ** 2)
 
@@ -321,53 +342,43 @@ ax1.set_ylabel("y")
 ax1.grid(True)
 ax1.legend()
 
-# Amplitude plot (shows the damped oscillations around elevated center)
+# Time series for y
 ax2 = fig.add_subplot(222)
-ax2.plot(t_values, r_pred, "r--", label="Oscillation Amplitude (NN)")
-ax2.plot(t_values, r_true, "b-", alpha=0.7, label="Oscillation Amplitude (True)")
-ax2.set_title("Oscillation Amplitude vs Time\n(relative to elevated center)")
+ax2.plot(t_values, y_pred, "g--", label="y (NN)")
+ax2.plot(t_values, y_true, "g-", alpha=0.7, label="y (True)")
+ax2.set_title("y-Coordinate vs Time")
 ax2.set_xlabel("Time")
-ax2.set_ylabel("Amplitude")
+ax2.set_ylabel("y")
 ax2.grid(True)
 ax2.legend()
-
-# Time series for x
-ax3 = fig.add_subplot(223)
-ax3.plot(t_values, x_pred, "r--", label="x (NN)")
-ax3.plot(t_values, x_true, "r-", alpha=0.7, label="x (True)")
-ax3.set_title("x-Coordinate vs Time")
-ax3.set_xlabel("Time")
-ax3.set_ylabel("x")
-ax3.grid(True)
-ax3.legend()
-
-# Time series for y
-ax4 = fig.add_subplot(224)
-ax4.plot(t_values, y_pred, "g--", label="y (NN)")
-ax4.plot(t_values, y_true, "g-", alpha=0.7, label="y (True)")
-ax4.set_title("y-Coordinate vs Time")
-ax4.set_xlabel("Time")
-ax4.set_ylabel("y")
-ax4.grid(True)
-ax4.legend()
-
-plt.tight_layout()
-plt.show()
 
 # Evaluate model error over time
 x_error = np.abs(x_pred - x_true)
 y_error = np.abs(y_pred - y_true)
 total_error = np.sqrt(x_error**2 + y_error**2)
 
-plt.figure(figsize=(10, 6))
-plt.semilogy(t_values, x_error, "r-", label="x Error")
-plt.semilogy(t_values, y_error, "g-", label="y Error")
-plt.semilogy(t_values, total_error, "b-", label="Total Error")
-plt.title("Neural Network Prediction Error vs Time")
-plt.xlabel("Time")
-plt.ylabel("Absolute Error (log scale)")
-plt.grid(True)
-plt.legend()
+# Error plot with log scale (replaces previous x time series subplot)
+ax3 = fig.add_subplot(223)
+ax3.semilogy(t_values, x_error, "r-", label="x Error")
+ax3.semilogy(t_values, y_error, "g-", label="y Error")
+ax3.semilogy(t_values, total_error, "b-", label="Total Error")
+ax3.set_title("Neural Network Prediction Error vs Time")
+ax3.set_xlabel("Time")
+ax3.set_ylabel("Absolute Error (log scale)")
+ax3.grid(True)
+ax3.legend()
+
+# Amplitude plot (shows the damped oscillations around elevated center)
+ax4 = fig.add_subplot(224)
+ax4.plot(t_values, r_pred, "r--", label="Oscillation Amplitude (NN)")
+ax4.plot(t_values, r_true, "b-", alpha=0.7, label="Oscillation Amplitude (True)")
+ax4.set_title("Oscillation Amplitude vs Time\n(relative to elevated center)")
+ax4.set_xlabel("Time")
+ax4.set_ylabel("Amplitude")
+ax4.grid(True)
+ax4.legend()
+
+plt.tight_layout()
 plt.show()
 
 # Save the model
