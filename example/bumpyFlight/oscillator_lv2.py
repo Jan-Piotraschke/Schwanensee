@@ -182,8 +182,13 @@ class ElevatedDampedOscillatorSystem:
 # Create system
 system = ElevatedDampedOscillatorSystem()
 
+
 # =============================================
-# SECTION 3: NEURAL NETWORK DESIGN & TRAINING
+# SECTION 3: NEURAL NETWORK DESING & TRAINING
+#
+# This section sets up the neural network architecture,
+# compiles the model,
+# and trains it to learn the parameters.
 # =============================================
 
 # Get the training observations
@@ -201,11 +206,27 @@ data = dde.data.PDE(
 
 # Define neural network architecture
 # Input: [t, x0, y0], Output: predicted [x, y]
-net = dde.nn.FNN([3] + [64] * 4 + [2], "tanh", "Glorot uniform")
+layer_sizes = [3] + [108] * 4 + [2]
+activation = "tanh"
+kernel_initializer = "Glorot uniform"
+dropout_rate = 0.01
+net = dde.nn.FNN(
+    layer_sizes=layer_sizes,
+    activation=activation,
+    kernel_initializer=kernel_initializer,
+    dropout_rate=dropout_rate,
+)
 
 # Build model and compile
 model = dde.Model(data, net)
-model.compile("adam", lr=0.001, loss_weights=[1, 1, 10, 10])
+
+# We need to prevent the physics residuals from dominating the data fitting, as our Physio Model can't be perfect
+loss_weights = [1, 1] + [10, 10]  # data weights + physics residual weights
+model.compile(
+    "adam",
+    lr=0.001,
+    loss_weights=loss_weights,
+)
 
 # Callbacks for storing results
 checkpointer = dde.callbacks.ModelCheckpoint(
@@ -215,11 +236,27 @@ checkpointer = dde.callbacks.ModelCheckpoint(
     period=1000,
 )
 
+ITERATIONS = 10000
+
 # Train the model
-model.train(iterations=6000, callbacks=[checkpointer])
+model.train(iterations=ITERATIONS, callbacks=[checkpointer])
+
+# Dummy input to build the model
+_ = model.predict(X_train[:1])  # triggers internal build of the TF model
+model.train(
+    iterations=0,
+    model_restore_path=f"./checkpoints/elevated_damped_oscillator-{ITERATIONS}.weights.h5",
+    callbacks=[checkpointer],
+)
+
 
 # ==========================================
 # SECTION 4: RESULTS ANALYSIS & MODEL EXPORT
+#
+# This section analyzes the results,
+# visualizes the parameter convergence,
+# compares predicted vs actual trajectories,
+# and reports the trained model.
 # ==========================================
 
 # Test the model on test data
@@ -315,7 +352,6 @@ ax4.grid(True)
 ax4.legend()
 
 plt.tight_layout()
-plt.savefig("elevated_damped_oscillator_behavior.png", dpi=300)
 plt.show()
 
 # Evaluate model error over time
@@ -332,7 +368,6 @@ plt.xlabel("Time")
 plt.ylabel("Absolute Error (log scale)")
 plt.grid(True)
 plt.legend()
-plt.savefig("elevated_damped_oscillator_error.png", dpi=300)
 plt.show()
 
 # Save the model
