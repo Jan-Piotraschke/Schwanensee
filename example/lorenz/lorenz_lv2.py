@@ -35,33 +35,67 @@ time = time_points.reshape(-1, 1)
 
 
 # Generate training data pairs with different initial conditions
-def generate_training_data(num_samples=100):
-    # Generate varied initial conditions around x0
-    x0_samples = np.array([x0]) + np.random.normal(0, 0.5, (num_samples, 3))
-
-    # Time points for each trajectory
+def generate_training_data(
+    num_samples=100,
+    positive_only=False,
+    x_range=(-10, 20),
+    y_range=(-10, 20),
+    z_range=(-10, 20),
+):
+    # Prepare containers for data
     time_samples = []
     trajectory_data = []
+
+    # Generate varied initial conditions
+    x0_samples = []
+
+    for _ in range(num_samples):
+        # Sample each component from specified ranges
+        x_init = np.random.uniform(x_range[0], x_range[1])
+        y_init = np.random.uniform(y_range[0], y_range[1])
+        z_init = np.random.uniform(z_range[0], z_range[1])
+
+        # Apply positive-only constraint if requested
+        if positive_only:
+            x_init = abs(x_init)
+            y_init = abs(y_init)
+            z_init = abs(z_init)
+
+        x0_samples.append([x_init, y_init, z_init])
+
+    x0_samples = np.array(x0_samples)
 
     # Generate trajectories for each initial condition
     for i in range(num_samples):
         # Solve ODE with this initial condition
-        trajectory = odeint(sdg.ODE, x0_samples[i], time_points)
+        try:
+            trajectory = odeint(sdg.ODE, x0_samples[i], time_points)
 
-        # Store data points from this trajectory
-        for j in range(len(time_points)):
-            # Input: [t, x0, y0, z0]
-            time_samples.append(
-                [time_points[j], x0_samples[i][0], x0_samples[i][1], x0_samples[i][2]]
+            # Store data points from this trajectory
+            for j in range(len(time_points)):
+                # Input: [t, x0, y0, z0]
+                time_samples.append(
+                    [
+                        time_points[j],
+                        x0_samples[i][0],
+                        x0_samples[i][1],
+                        x0_samples[i][2],
+                    ]
+                )
+                # Output: [x(t), y(t), z(t)]
+                trajectory_data.append(trajectory[j])
+
+        except Exception as e:
+            print(
+                f"Warning: Trajectory calculation failed for initial condition {x0_samples[i]}. Error: {str(e)}"
             )
-            # Output: [x(t), y(t), z(t)]
-            trajectory_data.append(trajectory[j])
+            continue
 
     return np.array(time_samples), np.array(trajectory_data)
 
 
 # Generate training and test data
-X_train, y_train = generate_training_data(50)  # 50 different initial conditions
+X_train, y_train = generate_training_data(80)  # X different initial conditions
 X_test, y_test = generate_training_data(10)  # 50 different initial conditions
 
 
@@ -164,12 +198,12 @@ data = dde.data.PDE(
 layer_sizes = [4] + [64] * 5 + [3]
 activation = "tanh"
 kernel_initializer = "Glorot uniform"
-dropout_rate = 0.1  # 10% dropout rate
+dropout_rate = 0.01
 net = dde.nn.FNN(
     layer_sizes=layer_sizes,
     activation=activation,
     kernel_initializer=kernel_initializer,
-    dropout_rate=dropout_rate
+    dropout_rate=dropout_rate,
 )
 
 # Build model and compile
@@ -193,13 +227,18 @@ checkpointer = dde.callbacks.ModelCheckpoint(
 )
 early_stopping = dde.callbacks.EarlyStopping(min_delta=1e-2, patience=1000)
 
+ITERATIONS = 6000
+
 # Train the model
-model.train(iterations=4000, callbacks=[variable, checkpointer, early_stopping])
-# model.train(
-#     iterations=0,
-#     model_restore_path="./checkpoints/lorenz_pinn-5000.ckpt",
-#     callbacks=[variable, checkpointer],
-# )
+model.train(iterations=ITERATIONS, callbacks=[variable, checkpointer, early_stopping])
+
+# Dummy input to build the model
+_ = model.predict(X_train[:1])  # triggers internal build of the TF model
+model.train(
+    iterations=0,
+    model_restore_path=f"./checkpoints/lorenz_pinn-{ITERATIONS}.weights.h5",
+    callbacks=[variable, checkpointer],
+)
 
 # model.compile("L-BFGS-B", lr=1.0e-5, loss_weights=loss_weights)
 # model.compile("L-BFGS", external_trainable_variables=dxs.constants)
@@ -227,7 +266,17 @@ input = np.column_stack(
 
 time_series_prediction = model.predict(input)
 plt.figure()
-plt.plot(time, physio_data, "-", time, time_series_prediction, "--")
+
+colors = ["black", "red", "green"]
+
+plt.plot(time, physio_data[:, 0], "-", color=colors[0])
+plt.plot(time, physio_data[:, 1], "-", color=colors[2])
+plt.plot(time, physio_data[:, 2], "-", color=colors[1])
+
+plt.plot(time, time_series_prediction[:, 0], "--", color=colors[0])
+plt.plot(time, time_series_prediction[:, 1], "--", color=colors[2])
+plt.plot(time, time_series_prediction[:, 2], "--", color=colors[1])
+
 plt.xlabel("Time")
 plt.legend(["x", "y", "z", "xh", "yh", "zh"])
 plt.title("Training data")
