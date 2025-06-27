@@ -219,7 +219,7 @@ data = dde.data.PDE(
     system.ODE_system,
     observation_points,  # Training data points
     num_domain=4000,  # Number of collocation points for ODE
-    num_boundary=200,  # Number of points on the boundary
+    num_boundary=400,  # Number of points on the boundary
     anchors=X_train,  # Include training points in collocation
 )
 
@@ -228,7 +228,7 @@ data = dde.data.PDE(
 layer_sizes = [3] + [84] * 5 + [2]
 activation = "tanh"
 kernel_initializer = "Glorot uniform"
-dropout_rate = 0.03
+dropout_rate = 0.01
 net = dde.nn.FNN(
     layer_sizes=layer_sizes,
     activation=activation,
@@ -239,34 +239,57 @@ net = dde.nn.FNN(
 # Build model and compile
 model = dde.Model(data, net)
 
+# Callbacks for storing results
+checkpointer = dde.callbacks.ModelCheckpoint(
+    "./checkpoints/elevated_damped_oscillator",
+    verbose=1,
+    save_better_only=False,
+    period=1000,
+)
+early_stopping = dde.callbacks.EarlyStopping(min_delta=0.5, patience=1000)
+
+ITERATIONS = 6000
+
 # We need to prevent the physics residuals from dominating the data fitting, as our Physio Model can't be perfect
-loss_weights = [1, 1] + [10, 10]  # data weights + physics residual weights
+# That's why we start with data-focused training to bring the PINN into the correct possition
+loss_weights = [10, 10] + [0, 0]  # data weights + physics residual weights
 model.compile(
     "adam",
     lr=0.001,
     loss_weights=loss_weights,
 )
 
-# Callbacks for storing results
-checkpointer = dde.callbacks.ModelCheckpoint(
-    "./checkpoints/elevated_damped_oscillator",
-    verbose=1,
-    save_better_only=True,
-    period=1000,
-)
+# Train the model
+model.train(iterations=ITERATIONS, callbacks=[checkpointer, early_stopping])
 
-ITERATIONS = 1000
+# We increase the weights of the physics to create the oscillation
+loss_weights = [1, 1] + [50, 50]  # data weights + physics residual weights
+model.compile(
+    "adam",
+    lr=0.001,
+    loss_weights=loss_weights,
+)
 
 # Train the model
-model.train(iterations=ITERATIONS, callbacks=[checkpointer])
+model.train(iterations=ITERATIONS, callbacks=[checkpointer, early_stopping])
+
+loss_weights = [1, 1] + [1, 1]  # data weights + physics residual weights
+model.compile(
+    "adam",
+    lr=0.001,
+    loss_weights=loss_weights,
+)
+
+# Train the model
+model.train(iterations=1000, callbacks=[checkpointer, early_stopping])
 
 # Dummy input to build the model
-_ = model.predict(X_train[:1])  # triggers internal build of the TF model
-model.train(
-    iterations=0,
-    model_restore_path=f"./checkpoints/elevated_damped_oscillator-{ITERATIONS}.weights.h5",
-    callbacks=[checkpointer],
-)
+# _ = model.predict(X_train[:1])  # triggers internal build of the TF model
+# model.train(
+#     iterations=0,
+#     model_restore_path=f"./checkpoints/elevated_damped_oscillator-{ITERATIONS}.weights.h5",
+#     callbacks=[checkpointer],
+# )
 
 
 # ==========================================
@@ -383,3 +406,5 @@ plt.show()
 
 # Save the model
 model.save(export_path)
+model.net.save(f"{export_path}.keras")
+model.net.export(export_path)
