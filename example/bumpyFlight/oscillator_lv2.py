@@ -225,10 +225,14 @@ data = dde.data.PDE(
 
 # Define neural network architecture
 # Input: [t, x0, y0], Output: predicted [x, y]
-layer_sizes = [3] + [84] * 5 + [2]
+# We choosed a count of at least 5 hidden layers, as we have to represent a limit cycle
+# NOTE ---
+# a 128 * 7 NN didn't improve the y fitting, only the x fitting, as the phase diagram got better
+# ---
+layer_sizes = [3] + [64] * 3 + [2]
 activation = "tanh"
-kernel_initializer = "Glorot uniform"
-dropout_rate = 0.01
+kernel_initializer = "He normal"
+dropout_rate = 0.0
 net = dde.nn.FNN(
     layer_sizes=layer_sizes,
     activation=activation,
@@ -246,7 +250,7 @@ checkpointer = dde.callbacks.ModelCheckpoint(
     save_better_only=False,
     period=1000,
 )
-early_stopping = dde.callbacks.EarlyStopping(min_delta=0.5, patience=1000)
+early_stopping = dde.callbacks.EarlyStopping(min_delta=1, patience=1000)
 
 ITERATIONS = 6000
 
@@ -281,7 +285,7 @@ model.compile(
 )
 
 # Train the model
-model.train(iterations=1000, callbacks=[checkpointer, early_stopping])
+model.train(iterations=3000, callbacks=[checkpointer, early_stopping])
 
 # Dummy input to build the model
 # _ = model.predict(X_train[:1])  # triggers internal build of the TF model
