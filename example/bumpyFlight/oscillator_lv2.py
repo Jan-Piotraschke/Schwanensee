@@ -25,12 +25,12 @@ def elevated_damped_oscillator_ode(t, state):
     x, y = state
 
     # System parameters
-    altitude_requested = 4.0  # Elevation offset
-    altitude_transition_time = 1.5  # Time constant for transition
-    climb_response = 2.0  # How quickly the system reacts to climb commands
-    damping_ratio = 0.5  # Damping factor
+    altitude_requested = 5.0  # Elevation offset
+    altitude_transition_time = 0.5  # Time constant for transition
     bumpy_hz = 4.0  # Angular frequency
-    bumpy_r0 = 0.3  # Target radius for limit cycle
+    bumpy_r0 = 0.5  # Target radius for limit cycle
+    climb_response = 2.0  # How quickly the system reacts to climb commands
+    damping_ratio = 1  # Damping factor
 
     # Calculate position relative to elevated center point
     x_rel = x
@@ -44,25 +44,12 @@ def elevated_damped_oscillator_ode(t, state):
 
     # Modified dynamics with initial growth and transition to limit cycle
     dx_dt = (
-        climb_response * np.exp(-t / altitude_transition_time)
-        - effective_damping * (r - bumpy_r0)
+        climb_response * np.exp(-t) - effective_damping * (r - bumpy_r0)
     ) * x_rel - bumpy_hz * y_rel
 
-    # Additional term for the vertical rise
-    elevation_rate = (
-        altitude_requested
-        * np.exp(-t / altitude_transition_time)
-        / altitude_transition_time
-    )
     dy_dt = (
-        (
-            climb_response * np.exp(-t / altitude_transition_time)
-            - effective_damping * (r - bumpy_r0)
-        )
-        * y_rel
-        + bumpy_hz * x_rel
-        + elevation_rate
-    )
+        climb_response * np.exp(-t) - effective_damping * (r - bumpy_r0)
+    ) * y_rel + bumpy_hz * x_rel
 
     return [dx_dt, dy_dt]
 
@@ -119,19 +106,19 @@ print("Data generation complete!")
 
 
 class ElevatedDampedOscillatorSystem:
-    def __init__(self, t_min=0, t_max=20.0, xy_min=-1.0, xy_max=5.0):
+    def __init__(self, t_min=0, t_max=20.0, xy_min=-1.0, xy_max=6.0):
         # Define domain: time and initial values (x0, y0)
         self.geom = dde.geometry.Cuboid(
             [t_min, xy_min, xy_min], [t_max, xy_max, xy_max]
         )
 
         # System parameters
-        self.climb_response = 2.0  # Initial growth rate
-        self.damping_ratio = 0.5  # Damping factor
+        self.altitude_requested = 5.0  # Elevation offset
+        self.altitude_transition_time = 0.5  # Time constant for transition
         self.bumpy_hz = 4.0  # Angular frequency
-        self.bumpy_r0 = 0.3  # Target radius for limit cycle
-        self.altitude_transition_time = 1.5  # Time constant for transition
-        self.altitude_requested = 4.0  # Elevation offset
+        self.bumpy_r0 = 0.5  # Target radius for limit cycle
+        self.climb_response = 2.0  # Initial growth rate
+        self.damping_ratio = 1  # Damping factor
 
     def ODE_system(self, x, y):
         """
@@ -162,18 +149,10 @@ class ElevatedDampedOscillatorSystem:
         dx_dt = dde.grad.jacobian(y, x, i=0, j=0)  # dx/dt
         dy_dt = dde.grad.jacobian(y, x, i=1, j=0)  # dy/dt
 
-        # Additional term for the vertical rise
-        elevation_rate = (
-            self.altitude_requested
-            * dde.backend.exp(-t / self.altitude_transition_time)
-            / self.altitude_transition_time
-        )
-
         # Modified oscillator equations
         eq1 = dx_dt - (
             (
-                self.climb_response
-                * dde.backend.exp(-t / self.altitude_transition_time)
+                self.climb_response * dde.backend.exp(-t)
                 - effective_damping * (r - self.bumpy_r0)
             )
             * x_rel
@@ -182,20 +161,24 @@ class ElevatedDampedOscillatorSystem:
 
         eq2 = dy_dt - (
             (
-                self.climb_response
-                * dde.backend.exp(-t / self.altitude_transition_time)
+                self.climb_response * dde.backend.exp(-t)
                 - effective_damping * (r - self.bumpy_r0)
             )
             * y_rel
             + self.bumpy_hz * x_rel
-            + elevation_rate
         )
 
         return [eq1, eq2]
 
     def get_observations(self, X, y):
-        """Creates observation points for training"""
-        return [dde.icbc.PointSetBC(X, y, component=i) for i in range(2)]
+        """Creates observation points for training based on 'real' data
+
+        Logic: "At point 'X' the output should be 'y'"
+        """
+        return [
+            dde.icbc.PointSetBC(X, y[:, 0:1], component=0),
+            dde.icbc.PointSetBC(X, y[:, 1:2], component=1),
+        ]
 
 
 # Create system
@@ -229,10 +212,10 @@ data = dde.data.PDE(
 # NOTE ---
 # a 128 * 7 NN didn't improve the y fitting, only the x fitting, as the phase diagram got better
 # ---
-layer_sizes = [3] + [64] * 3 + [2]
+layer_sizes = [3] + [84] * 5 + [2]
 activation = "tanh"
 kernel_initializer = "He normal"
-dropout_rate = 0.0
+dropout_rate = 0.01
 net = dde.nn.FNN(
     layer_sizes=layer_sizes,
     activation=activation,
@@ -250,9 +233,9 @@ checkpointer = dde.callbacks.ModelCheckpoint(
     save_better_only=False,
     period=1000,
 )
-early_stopping = dde.callbacks.EarlyStopping(min_delta=1, patience=1000)
+early_stopping = dde.callbacks.EarlyStopping(min_delta=0.5, patience=1000)
 
-ITERATIONS = 6000
+ITERATIONS = 12000
 
 # We need to prevent the physics residuals from dominating the data fitting, as our Physio Model can't be perfect
 # That's why we start with data-focused training to bring the PINN into the correct possition
