@@ -21,6 +21,8 @@ def elevated_damped_oscillator_ode(t, state):
     1. Sharp initial rise due to exponential growth term
     2. Damped oscillations around equilibrium
     3. Final stable limit cycle
+    4. Auto climb response when below threshold
+    5. Planned descent at t~10s
     """
     x, y = state
 
@@ -32,9 +34,23 @@ def elevated_damped_oscillator_ode(t, state):
     climb_response = 2.0  # How quickly the system reacts to climb commands
     damping_ratio = 1  # Damping factor
 
+    # Very simple descent function - linear ramp down and up
+    descent = 0.0
+    if 9 <= t <= 10:
+        # Ramp down from 0 to 3 over 1 second
+        descent = 3.0 * (t - 9)
+    elif 10 < t <= 11:
+        # Ramp up from 3 to 0 over 1 second
+        descent = 3.0 * (11 - t)
+
+    # Target altitude with descent
+    target_altitude = (
+        altitude_requested * (1 - np.exp(-t / altitude_transition_time)) - descent
+    )
+
     # Calculate position relative to elevated center point
     x_rel = x
-    y_rel = y - altitude_requested * (1 - np.exp(-t / altitude_transition_time))
+    y_rel = y - target_altitude
 
     # Calculate radius from elevated center
     r = np.sqrt(x_rel**2 + y_rel**2)
@@ -42,13 +58,18 @@ def elevated_damped_oscillator_ode(t, state):
     # Time-dependent damping - initially negative (growth), then positive (damping)
     effective_damping = damping_ratio * (1 - np.exp(-t / altitude_transition_time))
 
+    # Simple auto-climb response when below threshold (4.3)
+    auto_climb = 0.0
+    if y < 4.3:
+        auto_climb = 0.5 * (4.3 - y)  # Simple proportional response
+
     # Modified dynamics with initial growth and transition to limit cycle
     dx_dt = (
         climb_response * np.exp(-t) - effective_damping * (r - bumpy_r0)
     ) * x_rel - bumpy_hz * y_rel
 
     dy_dt = (
-        climb_response * np.exp(-t) - effective_damping * (r - bumpy_r0)
+        climb_response * np.exp(-t) - effective_damping * (r - bumpy_r0) + auto_climb
     ) * y_rel + bumpy_hz * x_rel
 
     return [dx_dt, dy_dt]
@@ -62,35 +83,49 @@ def generate_data(num_samples=5000, t_max=20.0):
     t_values = np.random.uniform(0, t_max, num_samples)
 
     # For each sample, solve ODE from initial condition up to the requested time
-    X = np.zeros((num_samples, 3))  # [t, x0, y0]
-    Y = np.zeros((num_samples, 2))  # [x(t), y(t)]
+    X = []  # [t, x0, y0]
+    Y = []  # [x(t), y(t)]
 
     print("Generating numerical solutions...")
+    count = 0
     for i in range(num_samples):
-        if i % 500 == 0:
-            print(f"  Progress: {i}/{num_samples}")
+        if count % 500 == 0 and count > 0:
+            print(f"  Progress: {count}/{num_samples}")
 
         x0 = x0_values[i]
         y0 = y0_values[i]
         t_end = t_values[i]
 
         # Solve ODE from initial condition to t_end
-        t_span = [0, t_end]
-        t_eval = [t_end]  # We only need solution at t_end
-        sol = scipy.integrate.solve_ivp(
-            elevated_damped_oscillator_ode,
-            t_span,
-            [x0, y0],
-            method="RK45",
-            t_eval=t_eval,
-            rtol=1e-6,
-        )
+        try:
+            t_span = [0, t_end]
+            t_eval = [t_end]  # We only need solution at t_end
+            sol = scipy.integrate.solve_ivp(
+                elevated_damped_oscillator_ode,
+                t_span,
+                [x0, y0],
+                method="RK45",
+                t_eval=t_eval,
+                rtol=1e-4,
+                atol=1e-6,
+                max_step=0.1,
+            )
 
-        # Store input [t, x0, y0] and output [x(t), y(t)]
-        X[i] = [t_end, x0, y0]
-        Y[i] = [sol.y[0][-1], sol.y[1][-1]]
+            if sol.success and sol.y.shape[1] > 0:
+                # Store input [t, x0, y0] and output [x(t), y(t)]
+                X.append([t_end, x0, y0])
+                Y.append([sol.y[0][-1], sol.y[1][-1]])
+                count += 1
 
-    return X, Y
+        except Exception as e:
+            # Skip this sample if integration fails
+            pass
+
+        if count >= num_samples:
+            break
+
+    print(f"Successfully generated {len(X)} samples")
+    return np.array(X), np.array(Y)
 
 
 # Generate training and test data
@@ -131,11 +166,31 @@ class ElevatedDampedOscillatorSystem:
         x_pred = y[:, 0:1]  # x coordinate
         y_pred = y[:, 1:2]  # y coordinate
 
+        # Simple auto-climb response when below threshold
+        threshold = 4.3
+        auto_climb = 0.5 * dde.backend.tf.maximum(0.0, threshold - y_pred)
+
+        # Simple linear descent at t=10s
+        descent = dde.backend.tf.zeros_like(t)
+
+        # Ramp down from t=9 to t=10
+        mask_down = dde.backend.tf.logical_and(t >= 9.0, t <= 10.0)
+        descent = dde.backend.tf.where(mask_down, 3.0 * (t - 9.0), descent)
+
+        # Ramp up from t=10 to t=11
+        mask_up = dde.backend.tf.logical_and(t > 10.0, t <= 11.0)
+        descent = dde.backend.tf.where(mask_up, 3.0 * (11.0 - t), descent)
+
+        # Target altitude with descent
+        target_altitude = (
+            self.altitude_requested
+            * (1 - dde.backend.exp(-t / self.altitude_transition_time))
+            - descent
+        )
+
         # Calculate position relative to elevated center point
         x_rel = x_pred
-        y_rel = y_pred - self.altitude_requested * (
-            1 - dde.backend.exp(-t / self.altitude_transition_time)
-        )
+        y_rel = y_pred - target_altitude
 
         # Calculate radius from elevated center
         r = dde.backend.tf.sqrt(x_rel**2 + y_rel**2)
@@ -163,6 +218,7 @@ class ElevatedDampedOscillatorSystem:
             (
                 self.climb_response * dde.backend.exp(-t)
                 - effective_damping * (r - self.bumpy_r0)
+                + auto_climb
             )
             * y_rel
             + self.bumpy_hz * x_rel
@@ -235,7 +291,7 @@ checkpointer = dde.callbacks.ModelCheckpoint(
 )
 early_stopping = dde.callbacks.EarlyStopping(min_delta=0.5, patience=1000)
 
-ITERATIONS = 12000
+ITERATIONS = 2000
 
 # We need to prevent the physics residuals from dominating the data fitting, as our Physio Model can't be perfect
 # That's why we start with data-focused training to bring the PINN into the correct possition
@@ -318,24 +374,40 @@ def visualize_trajectory(x0, y0, t_max=15.0, num_points=500):
         [x0, y0],
         method="RK45",
         t_eval=t_values,
-        rtol=1e-6,
+        rtol=1e-4,
+        atol=1e-6,
     )
     x_true = sol.y[0]
     y_true = sol.y[1]
 
-    # Calculate distance from the elevated center
-    y_center = system.altitude_requested * (
-        1 - np.exp(-t_values / system.altitude_transition_time)
+    # Calculate descent factor using simple linear ramp
+    descent = np.zeros_like(t_values)
+    # Ramp down
+    mask_down = (t_values >= 9.0) & (t_values <= 10.0)
+    descent[mask_down] = 3.0 * (t_values[mask_down] - 9.0)
+    # Ramp up
+    mask_up = (t_values > 10.0) & (t_values <= 11.0)
+    descent[mask_up] = 3.0 * (11.0 - t_values[mask_up])
+
+    # Calculate target altitude with planned descent
+    y_center = (
+        system.altitude_requested
+        * (1 - np.exp(-t_values / system.altitude_transition_time))
+        - descent
     )
+
     r_pred = np.sqrt(x_pred**2 + (y_pred - y_center) ** 2)
     r_true = np.sqrt(x_true**2 + (y_true - y_center) ** 2)
 
-    return t_values, x_pred, y_pred, x_true, y_true, r_pred, r_true, y_center
+    # Find the index closest to t=10s
+    t_10s_idx = np.argmin(np.abs(t_values - 10.0))
+
+    return t_values, x_pred, y_pred, x_true, y_true, r_pred, r_true, y_center, t_10s_idx
 
 
 # Visualize the oscillator behavior
 x0, y0 = 0.1, 0.1  # Start near origin
-t_values, x_pred, y_pred, x_true, y_true, r_pred, r_true, y_center = (
+t_values, x_pred, y_pred, x_true, y_true, r_pred, r_true, y_center, t_10s_idx = (
     visualize_trajectory(x0, y0)
 )
 
@@ -344,8 +416,39 @@ fig = plt.figure(figsize=(18, 12))
 
 # Phase space plot showing the complete trajectory
 ax1 = fig.add_subplot(221)
-ax1.plot(x_pred, y_pred, "r--", label="NN Prediction")
+
+# Split the trajectory into before and after t=10s
+ax1.plot(
+    x_pred[: t_10s_idx + 1],
+    y_pred[: t_10s_idx + 1],
+    color="darkred",
+    linestyle="--",
+    linewidth=2,
+    label="NN Prediction (before 10s)",
+)
+ax1.plot(
+    x_pred[t_10s_idx:],
+    y_pred[t_10s_idx:],
+    color="lightcoral",
+    linestyle="--",
+    linewidth=2,
+    label="NN Prediction (after 10s)",
+)
+
 ax1.plot(x_true, y_true, "b-", alpha=0.7, label="True Solution")
+
+# Add square marker at the 10s position
+ax1.scatter(
+    x_pred[t_10s_idx],
+    y_pred[t_10s_idx],
+    s=100,
+    c="red",
+    marker="s",
+    edgecolors="black",
+    linewidths=1.5,
+    label="State at 10s",
+)
+
 ax1.set_title("Phase Space - Elevated Damped Oscillations")
 ax1.set_xlabel("x")
 ax1.set_ylabel("y")
