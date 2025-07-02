@@ -417,7 +417,112 @@ fig = plt.figure(figsize=(18, 12))
 # Phase space plot showing the complete trajectory
 ax1 = fig.add_subplot(221)
 
-# Split the trajectory into before and after t=10s
+# Define the stable oscillation radius (known parameter)
+stable_radius = system.bumpy_r0 * 1.3  # Add a small margin to the known radius
+
+# Initialize phase masks - we'll apply them in order of priority
+phase_masks = {
+    "stable": np.zeros_like(
+        t_values, dtype=bool
+    ),  # Stable oscillation (highest priority)
+    "descent": np.zeros_like(t_values, dtype=bool),  # Descent (second priority)
+    "rise": np.zeros_like(t_values, dtype=bool),  # Rise/Recovery (lowest priority)
+}
+
+# Step 1: Identify the descent phase first (focused around t=10s)
+# Find the window where the planned descent occurs
+descent_start_idx = np.argmin(np.abs(t_values - 9.0))
+descent_end_idx = np.argmin(np.abs(t_values - 11.0))
+
+# Extend window to find actual start and end of descent phase based on the behavior
+extended_start = max(0, descent_start_idx - 10)
+extended_end = min(len(t_values), descent_end_idx + 10)
+extended_window = slice(extended_start, extended_end)
+
+# Find when y drops significantly during descent
+# Calculate the moving average of y to smooth out oscillations
+window_size = 5
+y_smooth = np.convolve(
+    y_true[extended_window], np.ones(window_size) / window_size, mode="valid"
+)
+y_smooth_times = t_values[extended_window][window_size - 1 :]
+
+# Find the lowest point in the smoothed data
+min_idx_in_smooth = np.argmin(y_smooth)
+actual_min_time = y_smooth_times[min_idx_in_smooth]
+min_idx_in_full = np.argmin(np.abs(t_values - actual_min_time))
+
+# Trace backward to find where descent begins (when r exceeds stable_radius)
+descent_begin = min_idx_in_full
+for i in range(min_idx_in_full, extended_start, -1):
+    if (
+        r_true[i] < stable_radius and y_true[i] > 4.0
+    ):  # Inside stable zone and above threshold
+        descent_begin = i + 1
+        break
+
+# Trace forward to find where descent ends (when system returns to stable oscillation)
+descent_end = min_idx_in_full
+for i in range(min_idx_in_full, extended_end):
+    if (
+        r_true[i] < stable_radius and y_true[i] > 4.0
+    ):  # Back in stable zone and above threshold
+        descent_end = i
+        break
+
+# Mark the descent phase
+phase_masks["descent"][descent_begin : descent_end + 1] = True
+
+# Step 2: Identify the stable oscillation phase
+# This happens when the system is within stable_radius of the target altitude
+# and after the initial rise phase (we'll use t > 2.0 to skip initial rise)
+initial_rise_end = np.argmin(np.abs(t_values - 2.0))
+
+for i in range(initial_rise_end, len(t_values)):
+    # Skip if already marked as descent
+    if phase_masks["descent"][i]:
+        continue
+
+    # If within stable radius and past initial rise
+    if r_true[i] <= stable_radius:
+        phase_masks["stable"][i] = True
+
+# Step 3: Everything else is rise/recovery
+phase_masks["rise"] = ~(phase_masks["stable"] | phase_masks["descent"])
+
+# Define grey shades for phase areas
+area_colors = {
+    "stable": "#A453D4FF",
+    "descent": "#606060C6",
+    "rise": "#AEAEAE99",
+}
+
+# Create convex hulls for each phase to visualize the areas
+from scipy.spatial import ConvexHull
+
+
+# Function to create and plot convex hull
+def plot_phase_hull(ax, x, y, color, alpha=0.8, label=None):
+    if len(x) < 3:  # Need at least 3 points for a hull
+        return
+    points = np.vstack((x, y)).T
+    hull = ConvexHull(points)
+    hull_vertices = hull.vertices
+    hull_x = points[hull_vertices, 0]
+    hull_y = points[hull_vertices, 1]
+    ax.fill(hull_x, hull_y, color=color, alpha=alpha, label=label)
+
+
+# First draw the phase areas using grey shades
+for phase, mask in phase_masks.items():
+    if np.sum(mask) > 3:  # Need at least 3 points
+        points_x = x_true[mask]
+        points_y = y_true[mask]
+        color = area_colors[phase]
+        area_label = f"{phase.capitalize()} Area"
+        plot_phase_hull(ax1, points_x, points_y, color, label=area_label)
+
+# Split the trajectory into before and after t=10s for NN prediction
 ax1.plot(
     x_pred[: t_10s_idx + 1],
     y_pred[: t_10s_idx + 1],
@@ -435,6 +540,7 @@ ax1.plot(
     label="NN Prediction (after 10s)",
 )
 
+# Plot true solution
 ax1.plot(x_true, y_true, "b-", alpha=0.7, label="True Solution")
 
 # Add square marker at the 10s position
