@@ -61,8 +61,8 @@ python -m tf2onnx.convert --saved-model generalized_patient --output model.onnx
 ## Code Format
 
 ```bash
-ruff format src
-ruff check src
+ruff format psai
+ruff check psai
 ```
 
 ## Briefer about PINNs
