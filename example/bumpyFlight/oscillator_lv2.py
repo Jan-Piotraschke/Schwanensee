@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import scipy.integrate
-from psai.utils.training import find_latest_checkpoint
+from schwan.utils.training import find_latest_checkpoint
 
 # Create directory for model saving
 script_dir = os.path.dirname(os.path.abspath(__file__))

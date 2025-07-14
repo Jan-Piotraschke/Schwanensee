@@ -1,6 +1,6 @@
-# Physio-SensAI
+# Schwanensee
 
-*Sharing the tacit knowledge of experienced workers*
+*Faust am Schwanensee - Sharing the tacit knowledge of experienced workers*
 
 Creating a PINN softsensor, which adjusts the parameters of its underlying physical model.
 
@@ -15,6 +15,9 @@ Sich über Wolken seinesgleichen dichtet!
 
 This tension illustrates that a complete description of tissue or other physiological diagnostics may not be possible with our current methods, and therefore, we may resort to a hyperspace approach of the neural network, since its understanding of the system could differ from ours, which, however, could prove beneficial to us.
 
+Let Faust sit on the Swan Lake (german: "Schwanensee")
+
+
 ## Usage
 
 ```bash
@@ -22,7 +25,7 @@ pip install deepxde tensorflow-probability tf-keras
 ```
 
 ```bash
-python psai/psai.py --python --input example/limitCycle/generated/Goldbeter_1995.py
+python schwan/schwan.py --python --input example/limitCycle/generated/Goldbeter_1995.py
 ```
 
 and then after this
@@ -61,8 +64,8 @@ python -m tf2onnx.convert --saved-model generalized_patient --output model.onnx
 ## Code Format
 
 ```bash
-ruff format psai
-ruff check psai
+ruff format schwan
+ruff check schwan
 ```
 
 ## Briefer about PINNs

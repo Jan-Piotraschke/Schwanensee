@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="psai",
+    name="schwan",
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
@@ -14,7 +14,7 @@ setup(
     description="Sharing the tacit knowledge of experienced workers",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/Jan-Piotraschke/Physio-SensAI",
+    url="https://github.com/Jan-Piotraschke/Schwanensee",
     classifiers=[
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",

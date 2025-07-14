@@ -9,7 +9,7 @@ from parser.python_to_deepxde import generate_deepxde_script
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PSAI: A parser tool for OpenCOR code."
+        description="Schwan: A parser tool for OpenCOR code."
     )
     parser.add_argument(
         "--python", action="store_true", help="Convert OpenCOR code to pure Python ODE"
