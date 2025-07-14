@@ -490,38 +490,42 @@ for i in range(initial_rise_end, len(t_values)):
 # Step 3: Everything else is rise/recovery
 phase_masks["rise"] = ~(phase_masks["stable"] | phase_masks["descent"])
 
-# Define grey shades for phase areas
-area_colors = {
-    "stable": "#A453D4FF",
-    "descent": "#606060C6",
-    "rise": "#AEAEAE99",
-}
-
 # Create convex hulls for each phase to visualize the areas
 from scipy.spatial import ConvexHull
 
 
-# Function to create and plot convex hull
-def plot_phase_hull(ax, x, y, color, alpha=0.8, label=None):
-    if len(x) < 3:  # Need at least 3 points for a hull
-        return
-    points = np.vstack((x, y)).T
-    hull = ConvexHull(points)
-    hull_vertices = hull.vertices
-    hull_x = points[hull_vertices, 0]
-    hull_y = points[hull_vertices, 1]
-    ax.fill(hull_x, hull_y, color=color, alpha=alpha, label=label)
+# Define solid colors for phase areas
+area_colors = {
+    "stable": "#A453D4",  # Purple (highest priority)
+    "descent": "#5E94CE",  # Dark grey (middle priority)
+    "rise": "#AEAEAE",     # Light grey (lowest priority)
+}
 
+# Sort phases by priority (lowest to highest)
+phases_by_priority = ["rise", "descent", "stable"]
 
-# First draw the phase areas using grey shades
-for phase, mask in phase_masks.items():
+# First clear any existing elements on the plot
+ax1.clear()
+
+# Draw the phase areas in order of priority (lowest first, highest last)
+for phase in phases_by_priority:
+    mask = phase_masks[phase]
     if np.sum(mask) > 3:  # Need at least 3 points
         points_x = x_true[mask]
         points_y = y_true[mask]
-        color = area_colors[phase]
-        area_label = f"{phase.capitalize()} Area"
-        plot_phase_hull(ax1, points_x, points_y, color, label=area_label)
 
+        # Create convex hull
+        points = np.vstack((points_x, points_y)).T
+        hull = ConvexHull(points)
+        hull_vertices = hull.vertices
+        hull_x = points[hull_vertices, 0]
+        hull_y = points[hull_vertices, 1]
+
+        # Plot the convex hull with solid color (alpha=1.0)
+        ax1.fill(hull_x, hull_y, color=area_colors[phase], alpha=1.0,
+                label=f"{phase.capitalize()} Area")
+
+# After drawing all areas, add the trajectories and markers on top
 # Split the trajectory into before and after t=10s for NN prediction
 ax1.plot(
     x_pred[: t_10s_idx + 1],
@@ -541,7 +545,7 @@ ax1.plot(
 )
 
 # Plot true solution
-ax1.plot(x_true, y_true, "b-", alpha=0.7, label="True Solution")
+ax1.plot(x_true, y_true, "b-", linewidth=2, label="True Solution")
 
 # Add square marker at the 10s position
 ax1.scatter(
@@ -555,10 +559,11 @@ ax1.scatter(
     label="State at 10s",
 )
 
+# Set titles and labels
 ax1.set_title("Phase Space - Elevated Damped Oscillations")
 ax1.set_xlabel("x")
 ax1.set_ylabel("y")
-ax1.grid(True)
+ax1.grid(False)
 ax1.legend()
 
 # Time series for y
