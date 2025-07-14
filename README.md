@@ -28,6 +28,12 @@ python psai/psai.py --python --input example/limitCycle/generated/Goldbeter_1995
 and then after this
 
 ```bash
+pip install .
+```
+
+with
+
+```bash
 DDE_BACKEND=tensorflow python example/bumpyFlight/oscillator_lv2.py
 DDE_BACKEND=tensorflow python example/lorenz/lorenz_lv2.py
 DDE_BACKEND=tensorflow.compat.v1 python example/lorenz/lorenz_w_exogenous_stimulus.py
