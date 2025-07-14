@@ -22,13 +22,14 @@ pip install deepxde tensorflow-probability tf-keras
 ```
 
 ```bash
-python src/psai.py --python --input example/lorenz/generated/Lorenz_1963.py
+python psai/psai.py --python --input example/limitCycle/generated/Goldbeter_1995.py
 ```
 
 and then after this
 
 ```bash
-DDE_BACKEND=tensorflow.compat.v1 python example/lorenz/lorenz.py
+DDE_BACKEND=tensorflow python example/bumpyFlight/oscillator_lv2.py
+DDE_BACKEND=tensorflow python example/lorenz/lorenz_lv2.py
 DDE_BACKEND=tensorflow.compat.v1 python example/lorenz/lorenz_w_exogenous_stimulus.py
 ```
 

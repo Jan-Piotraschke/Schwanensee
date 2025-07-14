@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import scipy.integrate
+from psai.utils.training import find_latest_checkpoint
 
 # Create directory for model saving
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -326,13 +327,24 @@ model.compile(
 # Train the model
 model.train(iterations=3000, callbacks=[checkpointer, early_stopping])
 
-# Dummy input to build the model
-# _ = model.predict(X_train[:1])  # triggers internal build of the TF model
-# model.train(
-#     iterations=0,
-#     model_restore_path=f"./checkpoints/elevated_damped_oscillator-{ITERATIONS}.weights.h5",
-#     callbacks=[checkpointer],
-# )
+# Try to find the latest checkpoint
+latest_checkpoint = find_latest_checkpoint()
+
+if latest_checkpoint:
+    print(f"Loading model from {latest_checkpoint}")
+
+    # Dummy input to build the model (triggers internal build of the TF model)
+    _ = model.predict(X_train[:1])
+
+    # Load the latest checkpoint
+    model.train(
+        iterations=0,
+        model_restore_path=latest_checkpoint,
+        callbacks=[checkpointer],
+    )
+    print("Model successfully loaded from checkpoint.")
+else:
+    print("No checkpoint found. Using the current model state.")
 
 
 # ==========================================
