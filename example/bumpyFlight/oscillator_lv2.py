@@ -510,7 +510,7 @@ from scipy.spatial import ConvexHull
 area_colors = {
     "stable": "#A453D4",  # Purple (highest priority)
     "descent": "#5E94CE",  # Dark grey (middle priority)
-    "rise": "#AEAEAE",     # Light grey (lowest priority)
+    "rise": "#AEAEAE",  # Light grey (lowest priority)
 }
 
 # Sort phases by priority (lowest to highest)
@@ -534,8 +534,13 @@ for phase in phases_by_priority:
         hull_y = points[hull_vertices, 1]
 
         # Plot the convex hull with solid color (alpha=1.0)
-        ax1.fill(hull_x, hull_y, color=area_colors[phase], alpha=1.0,
-                label=f"{phase.capitalize()} Area")
+        ax1.fill(
+            hull_x,
+            hull_y,
+            color=area_colors[phase],
+            alpha=1.0,
+            label=f"{phase.capitalize()} Area",
+        )
 
 # After drawing all areas, add the trajectories and markers on top
 # Split the trajectory into before and after t=10s for NN prediction
