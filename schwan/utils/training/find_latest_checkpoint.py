@@ -1,6 +1,6 @@
 import glob
 import re
-
+import os
 
 def find_latest_checkpoint():
     """Find the checkpoint file with the highest iteration number"""
@@ -14,12 +14,13 @@ def find_latest_checkpoint():
     # Extract iteration numbers from filenames
     iterations = []
     for file_path in checkpoint_files:
-        match = re.search(r"-(\d+)\.weights\.h5$", file_path)
+        filename = os.path.basename(file_path)
+        match = re.search(r"-(\d+)\.weights\.h5$", filename)
         if match:
             iterations.append((int(match.group(1)), file_path))
 
     if not iterations:
-        print("No valid checkpoint files found.")
+        print("No valid checkpoint files with iteration numbers found.")
         return None
 
     # Sort by iteration number and get the highest one

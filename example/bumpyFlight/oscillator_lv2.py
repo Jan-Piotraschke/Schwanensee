@@ -251,6 +251,8 @@ system = ElevatedDampedOscillatorSystem()
 # compiles the model,
 # and trains it to learn the parameters.
 # =============================================
+IS_CONTINOUS_LEARNING = False
+ITERATIONS = 2000
 
 # Get the training observations
 observation_points = system.get_observations(X_train, y_train)
@@ -272,61 +274,65 @@ data = dde.data.PDE(
 # a 128 * 7 NN didn't improve the y fitting, only the x fitting, as the phase diagram got better
 # ---
 layer_sizes = [3] + [84] * 5 + [2]
-model, callbacks = default_nn.create(layer_sizes=layer_sizes, data=data, project_name="elevated_damped_oscillator")
-
-ITERATIONS = 2000
-
-# We need to prevent the physics residuals from dominating the data fitting, as our Physio Model can't be perfect
-# That's why we start with data-focused training to bring the PINN into the correct possition
-loss_weights = [10, 10] + [0, 0]  # data weights + physics residual weights
-model.compile(
-    "adam",
-    lr=0.001,
-    loss_weights=loss_weights,
+model, callbacks = default_nn.create(
+    layer_sizes=layer_sizes, data=data, project_name="elevated_damped_oscillator"
 )
 
-# Train the model
-model.train(iterations=ITERATIONS, callbacks=callbacks)
+# Try to find the latest checkpoint
+latest_checkpoint = find_latest_checkpoint.find_latest_checkpoint()
 
-# We increase the weights of the physics to create the oscillation
-loss_weights = [1, 1] + [50, 50]  # data weights + physics residual weights
-model.compile(
-    "adam",
-    lr=0.001,
-    loss_weights=loss_weights,
-)
+if latest_checkpoint:
+    print(f"Loading model from {latest_checkpoint}")
 
-# Train the model
-model.train(iterations=ITERATIONS, callbacks=callbacks)
+    # Dummy input to build the model (triggers internal build of the TF model)
+    model.compile("adam", lr=0.1)
+    _ = model.predict(X_train[:1])
 
-loss_weights = [1, 1] + [1, 1]  # data weights + physics residual weights
-model.compile(
-    "adam",
-    lr=0.001,
-    loss_weights=loss_weights,
-)
+    # Load the latest checkpoint
+    model.train(
+        iterations=0,
+        model_restore_path=latest_checkpoint,
+        callbacks=callbacks,
+    )
+    print("Model successfully loaded from checkpoint.")
+else:
+    print("No checkpoint found. Using the current model state.")
 
-# Train the model
-model.train(iterations=3000, callbacks=callbacks)
+if IS_CONTINOUS_LEARNING or not latest_checkpoint:
+    # We need to prevent the physics residuals from dominating the data fitting, as our Physio Model can't be perfect
+    # That's why we start with data-focused training to bring the PINN into the correct possition
+    loss_weights = [10, 10] + [0, 0]  # data weights + physics residual weights
+    model.compile(
+        "adam",
+        lr=0.001,
+        loss_weights=loss_weights,
+    )
 
-# # Try to find the latest checkpoint
-# latest_checkpoint = find_latest_checkpoint()
+    # Train the model
+    model.train(iterations=ITERATIONS, callbacks=callbacks)
 
-# if latest_checkpoint:
-#     print(f"Loading model from {latest_checkpoint}")
+    # We increase the weights of the physics to create the oscillation
+    loss_weights = [1, 1] + [50, 50]  # data weights + physics residual weights
+    model.compile(
+        "adam",
+        lr=0.001,
+        loss_weights=loss_weights,
+    )
 
-#     # Dummy input to build the model (triggers internal build of the TF model)
-#     _ = model.predict(X_train[:1])
+    # Train the model
+    model.train(iterations=ITERATIONS, callbacks=callbacks)
 
-#     # Load the latest checkpoint
-#     model.train(
-#         iterations=0,
-#         model_restore_path=latest_checkpoint,
-#         callbacks=callbacks,
-#     )
-#     print("Model successfully loaded from checkpoint.")
-# else:
-#     print("No checkpoint found. Using the current model state.")
+    loss_weights = [1, 1] + [1, 1]  # data weights + physics residual weights
+    model.compile(
+        "adam",
+        lr=0.001,
+        loss_weights=loss_weights,
+    )
+
+    # Train the model
+    model.train(iterations=3000, callbacks=callbacks)
+else:
+    print("No further learning. Using the current model state.")
 
 
 # ==========================================
@@ -414,7 +420,9 @@ phase_visualizer = schwanensee.SchwanenseeVisualizer(ax=ax1)
 
 # Define the stable oscillation radius (known parameter)
 stable_radius = system.bumpy_r0 * 1.3  # Add a small margin to the known radius
-phase_visualizer.visualize(t_values, x_pred, y_pred, x_true, y_true, r_true, stable_radius=stable_radius)
+phase_visualizer.visualize(
+    t_values, x_pred, y_pred, x_true, y_true, r_true, stable_radius=stable_radius
+)
 
 # Set titles and labels
 ax1.set_title("Phase Space - Elevated Damped Oscillations")
