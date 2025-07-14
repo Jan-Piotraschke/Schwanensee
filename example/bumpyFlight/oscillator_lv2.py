@@ -3,7 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import scipy.integrate
+from schwan.utils.plot import schwanensee
 from schwan.utils.training import find_latest_checkpoint
+from schwan.utils.default_nn import default_nn
 
 # Create directory for model saving
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -270,27 +272,7 @@ data = dde.data.PDE(
 # a 128 * 7 NN didn't improve the y fitting, only the x fitting, as the phase diagram got better
 # ---
 layer_sizes = [3] + [84] * 5 + [2]
-activation = "tanh"
-kernel_initializer = "He normal"
-dropout_rate = 0.01
-net = dde.nn.FNN(
-    layer_sizes=layer_sizes,
-    activation=activation,
-    kernel_initializer=kernel_initializer,
-    dropout_rate=dropout_rate,
-)
-
-# Build model and compile
-model = dde.Model(data, net)
-
-# Callbacks for storing results
-checkpointer = dde.callbacks.ModelCheckpoint(
-    "./checkpoints/elevated_damped_oscillator",
-    verbose=1,
-    save_better_only=False,
-    period=1000,
-)
-early_stopping = dde.callbacks.EarlyStopping(min_delta=0.5, patience=1000)
+model, callbacks = default_nn.create(layer_sizes=layer_sizes, data=data, project_name="elevated_damped_oscillator")
 
 ITERATIONS = 2000
 
@@ -304,7 +286,7 @@ model.compile(
 )
 
 # Train the model
-model.train(iterations=ITERATIONS, callbacks=[checkpointer, early_stopping])
+model.train(iterations=ITERATIONS, callbacks=callbacks)
 
 # We increase the weights of the physics to create the oscillation
 loss_weights = [1, 1] + [50, 50]  # data weights + physics residual weights
@@ -315,7 +297,7 @@ model.compile(
 )
 
 # Train the model
-model.train(iterations=ITERATIONS, callbacks=[checkpointer, early_stopping])
+model.train(iterations=ITERATIONS, callbacks=callbacks)
 
 loss_weights = [1, 1] + [1, 1]  # data weights + physics residual weights
 model.compile(
@@ -325,26 +307,26 @@ model.compile(
 )
 
 # Train the model
-model.train(iterations=3000, callbacks=[checkpointer, early_stopping])
+model.train(iterations=3000, callbacks=callbacks)
 
-# Try to find the latest checkpoint
-latest_checkpoint = find_latest_checkpoint()
+# # Try to find the latest checkpoint
+# latest_checkpoint = find_latest_checkpoint()
 
-if latest_checkpoint:
-    print(f"Loading model from {latest_checkpoint}")
+# if latest_checkpoint:
+#     print(f"Loading model from {latest_checkpoint}")
 
-    # Dummy input to build the model (triggers internal build of the TF model)
-    _ = model.predict(X_train[:1])
+#     # Dummy input to build the model (triggers internal build of the TF model)
+#     _ = model.predict(X_train[:1])
 
-    # Load the latest checkpoint
-    model.train(
-        iterations=0,
-        model_restore_path=latest_checkpoint,
-        callbacks=[checkpointer],
-    )
-    print("Model successfully loaded from checkpoint.")
-else:
-    print("No checkpoint found. Using the current model state.")
+#     # Load the latest checkpoint
+#     model.train(
+#         iterations=0,
+#         model_restore_path=latest_checkpoint,
+#         callbacks=callbacks,
+#     )
+#     print("Model successfully loaded from checkpoint.")
+# else:
+#     print("No checkpoint found. Using the current model state.")
 
 
 # ==========================================
@@ -428,153 +410,11 @@ fig = plt.figure(figsize=(18, 12))
 
 # Phase space plot showing the complete trajectory
 ax1 = fig.add_subplot(221)
+phase_visualizer = schwanensee.SchwanenseeVisualizer(ax=ax1)
 
 # Define the stable oscillation radius (known parameter)
 stable_radius = system.bumpy_r0 * 1.3  # Add a small margin to the known radius
-
-# Initialize phase masks - we'll apply them in order of priority
-phase_masks = {
-    "stable": np.zeros_like(
-        t_values, dtype=bool
-    ),  # Stable oscillation (highest priority)
-    "descent": np.zeros_like(t_values, dtype=bool),  # Descent (second priority)
-    "rise": np.zeros_like(t_values, dtype=bool),  # Rise/Recovery (lowest priority)
-}
-
-# Step 1: Identify the descent phase first (focused around t=10s)
-# Find the window where the planned descent occurs
-descent_start_idx = np.argmin(np.abs(t_values - 9.0))
-descent_end_idx = np.argmin(np.abs(t_values - 11.0))
-
-# Extend window to find actual start and end of descent phase based on the behavior
-extended_start = max(0, descent_start_idx - 10)
-extended_end = min(len(t_values), descent_end_idx + 10)
-extended_window = slice(extended_start, extended_end)
-
-# Find when y drops significantly during descent
-# Calculate the moving average of y to smooth out oscillations
-window_size = 5
-y_smooth = np.convolve(
-    y_true[extended_window], np.ones(window_size) / window_size, mode="valid"
-)
-y_smooth_times = t_values[extended_window][window_size - 1 :]
-
-# Find the lowest point in the smoothed data
-min_idx_in_smooth = np.argmin(y_smooth)
-actual_min_time = y_smooth_times[min_idx_in_smooth]
-min_idx_in_full = np.argmin(np.abs(t_values - actual_min_time))
-
-# Trace backward to find where descent begins (when r exceeds stable_radius)
-descent_begin = min_idx_in_full
-for i in range(min_idx_in_full, extended_start, -1):
-    if (
-        r_true[i] < stable_radius and y_true[i] > 4.0
-    ):  # Inside stable zone and above threshold
-        descent_begin = i + 1
-        break
-
-# Trace forward to find where descent ends (when system returns to stable oscillation)
-descent_end = min_idx_in_full
-for i in range(min_idx_in_full, extended_end):
-    if (
-        r_true[i] < stable_radius and y_true[i] > 4.0
-    ):  # Back in stable zone and above threshold
-        descent_end = i
-        break
-
-# Mark the descent phase
-phase_masks["descent"][descent_begin : descent_end + 1] = True
-
-# Step 2: Identify the stable oscillation phase
-# This happens when the system is within stable_radius of the target altitude
-# and after the initial rise phase (we'll use t > 2.0 to skip initial rise)
-initial_rise_end = np.argmin(np.abs(t_values - 2.0))
-
-for i in range(initial_rise_end, len(t_values)):
-    # Skip if already marked as descent
-    if phase_masks["descent"][i]:
-        continue
-
-    # If within stable radius and past initial rise
-    if r_true[i] <= stable_radius:
-        phase_masks["stable"][i] = True
-
-# Step 3: Everything else is rise/recovery
-phase_masks["rise"] = ~(phase_masks["stable"] | phase_masks["descent"])
-
-# Create convex hulls for each phase to visualize the areas
-from scipy.spatial import ConvexHull
-
-
-# Define solid colors for phase areas
-area_colors = {
-    "stable": "#A453D4",  # Purple (highest priority)
-    "descent": "#5E94CE",  # Dark grey (middle priority)
-    "rise": "#AEAEAE",  # Light grey (lowest priority)
-}
-
-# Sort phases by priority (lowest to highest)
-phases_by_priority = ["rise", "descent", "stable"]
-
-# First clear any existing elements on the plot
-ax1.clear()
-
-# Draw the phase areas in order of priority (lowest first, highest last)
-for phase in phases_by_priority:
-    mask = phase_masks[phase]
-    if np.sum(mask) > 3:  # Need at least 3 points
-        points_x = x_true[mask]
-        points_y = y_true[mask]
-
-        # Create convex hull
-        points = np.vstack((points_x, points_y)).T
-        hull = ConvexHull(points)
-        hull_vertices = hull.vertices
-        hull_x = points[hull_vertices, 0]
-        hull_y = points[hull_vertices, 1]
-
-        # Plot the convex hull with solid color (alpha=1.0)
-        ax1.fill(
-            hull_x,
-            hull_y,
-            color=area_colors[phase],
-            alpha=1.0,
-            label=f"{phase.capitalize()} Area",
-        )
-
-# After drawing all areas, add the trajectories and markers on top
-# Split the trajectory into before and after t=10s for NN prediction
-ax1.plot(
-    x_pred[: t_10s_idx + 1],
-    y_pred[: t_10s_idx + 1],
-    color="darkred",
-    linestyle="--",
-    linewidth=2,
-    label="NN Prediction (before 10s)",
-)
-ax1.plot(
-    x_pred[t_10s_idx:],
-    y_pred[t_10s_idx:],
-    color="lightcoral",
-    linestyle="--",
-    linewidth=2,
-    label="NN Prediction (after 10s)",
-)
-
-# Plot true solution
-ax1.plot(x_true, y_true, "b-", linewidth=2, label="True Solution")
-
-# Add square marker at the 10s position
-ax1.scatter(
-    x_pred[t_10s_idx],
-    y_pred[t_10s_idx],
-    s=100,
-    c="red",
-    marker="s",
-    edgecolors="black",
-    linewidths=1.5,
-    label="State at 10s",
-)
+phase_visualizer.visualize(t_values, x_pred, y_pred, x_true, y_true, r_true, stable_radius=stable_radius)
 
 # Set titles and labels
 ax1.set_title("Phase Space - Elevated Damped Oscillations")
