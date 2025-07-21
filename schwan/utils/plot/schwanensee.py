@@ -4,18 +4,9 @@ from scipy.spatial import ConvexHull
 
 
 class SchwanenseeVisualizer:
-    """
-    A class for visualizing phase space trajectories with different phase regions.
-    """
-
     def __init__(self, ax=None):
         """
         Initialize the visualizer with an optional matplotlib axis.
-
-        Parameters:
-        -----------
-        ax : matplotlib.axes.Axes, optional
-            The matplotlib axis to plot on. If None, a new one will be created.
         """
         if ax is None:
             self.fig, self.ax = plt.subplots(figsize=(8, 6))
@@ -35,26 +26,6 @@ class SchwanenseeVisualizer:
     def identify_phases(self, t_values, x_true, y_true, r_true, stable_radius=0.65):
         """
         Identify different phases in the trajectory.
-
-        Parameters:
-        -----------
-        t_values : array-like
-            Time values of the trajectory.
-        x_true : array-like
-            x-coordinates of the true trajectory.
-        y_true : array-like
-            y-coordinates of the true trajectory.
-        r_true : array-like
-            Radius values (distance from center) of the true trajectory.
-        stable_radius : float, optional
-            Radius threshold for stable oscillation.
-
-        Returns:
-        --------
-        phase_masks : dict
-            Dictionary containing boolean masks for each phase.
-        t_10s_idx : int
-            Index closest to t=10s.
         """
         # Initialize phase masks
         phase_masks = {
@@ -136,19 +107,6 @@ class SchwanenseeVisualizer:
     def plot_trajectories(self, x_pred, y_pred, x_true, y_true, t_10s_idx):
         """
         Plot the predicted and true trajectories.
-
-        Parameters:
-        -----------
-        x_pred : array-like
-            x-coordinates of the predicted trajectory.
-        y_pred : array-like
-            y-coordinates of the predicted trajectory.
-        x_true : array-like
-            x-coordinates of the true trajectory.
-        y_true : array-like
-            y-coordinates of the true trajectory.
-        t_10s_idx : int
-            Index closest to t=10s.
         """
         # Split the trajectory into before and after t=10s for NN prediction
         self.ax.plot(
@@ -183,6 +141,158 @@ class SchwanenseeVisualizer:
             label="State at 10s",
         )
 
+    def plot_vector_field(
+        self,
+        model_function,
+        t=0.0,
+        x_range=(-3, 3),
+        y_range=(0, 6),
+        grid_size=12,
+        arrow_scale=0.001,
+        arrow_width=0.001,
+        color="darkblue",
+        alpha=0.6,
+        skip=None,
+    ):
+        """
+        Add a vector field to the phase space plot.
+
+        Physical insight:
+        - indication of state change speed and its acceleration / deceleration
+        - spotting critical points as they appear with very short arrows
+        """
+        # Create a grid of points
+        x_grid = np.linspace(x_range[0], x_range[1], grid_size)
+        y_grid = np.linspace(y_range[0], y_range[1], grid_size)
+        X, Y = np.meshgrid(x_grid, y_grid)
+
+        # Initialize arrays for the vector components
+        U = np.zeros_like(X)
+        V = np.zeros_like(Y)
+
+        # PINN: Use the trained model to predict dx/dt, dy/dt
+        # Create inputs for each grid point [t, x0, y0]
+        inputs = np.zeros((grid_size * grid_size, 3))
+        inputs[:, 0] = t  # Fixed time
+        inputs[:, 1] = X.flatten()  # Initial x
+        inputs[:, 2] = Y.flatten()  # Initial y
+
+        # Get the predicted state and compute gradient using finite differences
+        delta_t = 0.01
+        inputs_dt = inputs.copy()
+        inputs_dt[:, 0] = t + delta_t
+
+        # Predict at t and t+dt
+        pred_t = model_function.predict(inputs)
+        pred_t_dt = model_function.predict(inputs_dt)
+
+        # Compute approximate derivatives
+        dx_dt = (pred_t_dt[:, 0] - pred_t[:, 0]) / delta_t
+        dy_dt = (pred_t_dt[:, 1] - pred_t[:, 1]) / delta_t
+
+        # Reshape to grid
+        U = dx_dt.reshape(grid_size, grid_size)
+        V = dy_dt.reshape(grid_size, grid_size)
+
+        # Normalize arrows for better visualization
+        magnitude = np.sqrt(U**2 + V**2)
+        max_mag = np.max(magnitude)
+        if max_mag > 0:
+            U = U / max_mag
+            V = V / max_mag
+
+        # Apply skip to create a sparser field if specified
+        if skip is not None and skip > 1:
+            X_sparse = X[::skip, ::skip]
+            Y_sparse = Y[::skip, ::skip]
+            U_sparse = U[::skip, ::skip]
+            V_sparse = V[::skip, ::skip]
+        else:
+            X_sparse, Y_sparse = X, Y
+            U_sparse, V_sparse = U, V
+
+        # Plot the vector field
+        self.ax.quiver(
+            X_sparse,
+            Y_sparse,
+            U_sparse,
+            V_sparse,
+            scale=1 / arrow_scale,
+            width=arrow_width,
+            color=color,
+            alpha=alpha,
+            headwidth=3,
+            headlength=4,
+        )
+
+    def plot_streamlines(
+        self,
+        pinn_model,
+        t=0.0,
+        x_range=(-3, 3),
+        y_range=(0, 6),
+        density=1.0,
+        linewidth=1.0,
+        color="darkblue",
+        arrowsize=1.2,
+        arrowstyle="->",
+        integration_direction="both",
+        min_length=0.1,
+        start_points=None,
+        grid_size=30,
+    ):
+        """
+        Add streamlines to visualize the flow in the vector field.
+
+        Physical insight:
+        - visualizing boundaries between different flow regimes easy visible
+        """
+        # Create a higher resolution grid for the vector field
+        x_grid = np.linspace(x_range[0], x_range[1], grid_size)
+        y_grid = np.linspace(y_range[0], y_range[1], grid_size)
+        X, Y = np.meshgrid(x_grid, y_grid)
+
+        # Create inputs for each grid point [t, x0, y0]
+        inputs = np.zeros((grid_size * grid_size, 3))
+        inputs[:, 0] = t  # Fixed time
+        inputs[:, 1] = X.flatten()  # Initial x
+        inputs[:, 2] = Y.flatten()  # Initial y
+
+        # Get the predicted state and compute gradient using finite differences
+        delta_t = 0.01
+        inputs_dt = inputs.copy()
+        inputs_dt[:, 0] = t + delta_t
+
+        # Predict at t and t+dt
+        pred_t = pinn_model.predict(inputs)
+        pred_t_dt = pinn_model.predict(inputs_dt)
+
+        # Compute approximate derivatives
+        dx_dt = (pred_t_dt[:, 0] - pred_t[:, 0]) / delta_t
+        dy_dt = (pred_t_dt[:, 1] - pred_t[:, 1]) / delta_t
+
+        # Reshape to grid
+        U = dx_dt.reshape(grid_size, grid_size)
+        V = dy_dt.reshape(grid_size, grid_size)
+
+        # Create the streamplot
+        streamlines = self.ax.streamplot(
+            X,
+            Y,
+            U,
+            V,
+            density=density,
+            linewidth=linewidth,
+            color=color,
+            arrowsize=arrowsize,
+            arrowstyle=arrowstyle,
+            integration_direction=integration_direction,
+            minlength=min_length,
+            start_points=start_points,
+        )
+
+        return streamlines
+
     def plot_lic(
         self,
         model_function,
@@ -196,14 +306,11 @@ class SchwanenseeVisualizer:
     ):
         """
         Add a grayscale Line Integral Convolution (LIC) vector field visualization.
-        """
-        try:
-            import numpy as np
-            from scipy import ndimage
-        except ImportError:
-            print("Required modules not available for LIC visualization")
-            return
 
+        Physical insight:
+        - reveal of the dense flow pattern
+        - stencil source for the drawing of the phases into the Phase Space
+        """
         # Ensure kernel length is odd
         if kernel_length % 2 == 0:
             kernel_length += 1
@@ -212,10 +319,6 @@ class SchwanenseeVisualizer:
         x_grid = np.linspace(x_range[0], x_range[1], resolution)
         y_grid = np.linspace(y_range[0], y_range[1], resolution)
         X, Y = np.meshgrid(x_grid, y_grid)
-
-        # Calculate spacing for derivatives
-        dx = (x_range[1] - x_range[0]) / (resolution - 1)
-        dy = (y_range[1] - y_range[0]) / (resolution - 1)
 
         # Initialize arrays for the vector components
         U = np.zeros_like(X)
@@ -397,15 +500,6 @@ class SchwanenseeVisualizer:
     def plot_phase_areas(self, x_true, y_true, phase_masks):
         """
         Plot the phase areas using convex hulls.
-
-        Parameters:
-        -----------
-        x_true : array-like
-            x-coordinates of the true trajectory.
-        y_true : array-like
-            y-coordinates of the true trajectory.
-        phase_masks : dict
-            Dictionary containing boolean masks for each phase.
         """
         # Clear any existing elements on the plot
         self.ax.clear()
@@ -442,11 +536,27 @@ class SchwanenseeVisualizer:
         y_true,
         r_true,
         stable_radius=0.65,
-        show_lic=False,
+        vector_field_type="none",  # Options: "none", "arrows", "lic", "streamlines"
         pinn_model=None,
         vector_field_t=5.0,
+        # Arrow vector field options
+        arrow_grid_size=12,
+        arrow_skip=None,
+        arrow_scale=8,
+        arrow_width=0.003,
+        arrow_color="darkblue",
+        arrow_alpha=0.7,
+        # LIC options
         lic_resolution=200,
         lic_cmap="gray",
+        lic_alpha=0.8,
+        # Streamline options
+        stream_density=1.0,
+        stream_linewidth=1.0,
+        stream_color="darkblue",
+        stream_arrowsize=1.2,
+        x_range=(-3, 4),
+        y_range=(-1, 7),
     ):
         # Identify phases
         phase_masks, t_10s_idx = self.identify_phases(
@@ -456,17 +566,44 @@ class SchwanenseeVisualizer:
         # Plot phase areas
         self.plot_phase_areas(x_true, y_true, phase_masks)
 
-        # Add LIC visualization if requested
-        if show_lic:
-            if pinn_model is not None:
+        # Add vector field visualization if requested and if we have a PINN model
+        if pinn_model is not None:
+            if vector_field_type.lower() == "lic":
+                # Use Line Integral Convolution
                 self.plot_lic(
                     pinn_model,
                     t=vector_field_t,
-                    x_range=(-3, 4),
-                    y_range=(-1, 7),
+                    x_range=x_range,
+                    y_range=y_range,
                     resolution=lic_resolution,
                     cmap=lic_cmap,
-                    alpha=0.8,
+                    alpha=lic_alpha,
+                )
+            elif vector_field_type.lower() == "arrows":
+                # Use arrow-based vector field
+                self.plot_vector_field(
+                    pinn_model,
+                    t=vector_field_t,
+                    x_range=x_range,
+                    y_range=y_range,
+                    grid_size=arrow_grid_size,
+                    arrow_scale=arrow_scale,
+                    arrow_width=arrow_width,
+                    color=arrow_color,
+                    alpha=arrow_alpha,
+                    skip=arrow_skip,
+                )
+            elif vector_field_type.lower() == "streamlines":
+                # Use streamline visualization
+                self.plot_streamlines(
+                    pinn_model,
+                    t=vector_field_t,
+                    x_range=x_range,
+                    y_range=y_range,
+                    density=stream_density,
+                    linewidth=stream_linewidth,
+                    color=stream_color,
+                    arrowsize=stream_arrowsize,
                 )
 
         # Plot trajectories

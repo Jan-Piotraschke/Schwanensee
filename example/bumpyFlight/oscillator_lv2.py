@@ -406,26 +406,74 @@ def visualize_trajectory(x0, y0, t_max=15.0, num_points=500):
 
 
 # Visualize the oscillator behavior
-x0, y0 = 3, 3  # Start near origin
+x0, y0 = 1, 0.1  # Start near origin
+
 t_values, x_pred, y_pred, x_true, y_true, r_pred, r_true, y_center, t_10s_idx = (
-    visualize_trajectory(x0, y0)
+    visualize_trajectory(0.1, 0.1)
 )
 
-# Create comprehensive visualization
+# Create the phase space visualization with vector fields
 fig = plt.figure(figsize=(18, 12))
-
-# Phase space plot showing the complete trajectory
 ax1 = fig.add_subplot(221)
 phase_visualizer = schwanensee.SchwanenseeVisualizer(ax=ax1)
 
-# Define the stable oscillation radius (known parameter)
-stable_radius = system.bumpy_r0 * 1.3  # Add a small margin to the known radius
+# Define the stable oscillation radius
+stable_radius = system.bumpy_r0 * 1.3
+
+# Add vector fields for both the classical ODE and the PINN model
+# phase_visualizer.visualize(
+#     t_values, x_pred, y_pred, x_true, y_true, r_true,
+#     stable_radius=stable_radius,
+#     vector_field_type="none",
+#     pinn_model=model,
+# )
+
+# Arrow-based vector field
+# phase_visualizer.visualize(
+#     t_values, x_pred, y_pred, x_true, y_true, r_true,
+#     stable_radius=stable_radius,
+#     vector_field_type="arrows",
+#     pinn_model=model,
+#     vector_field_t=5.0,
+#     arrow_grid_size=15,
+#     arrow_skip=1,
+#     arrow_color="darkblue"
+# )
+
+# # Streamlines visualization
+# phase_visualizer.visualize(
+#     t_values, x_pred, y_pred, x_true, y_true, r_true,
+#     stable_radius=stable_radius,
+#     vector_field_type="streamlines",
+#     pinn_model=model,
+#     vector_field_t=5.0,
+#     stream_density=1.5,
+#     stream_linewidth=1.2,
+#     stream_color="darkblue",
+#     stream_arrowsize=1.5,
+#     x_range=(-3, 4),
+#     y_range=(-1, 7),
+# )
+
+
+# LIC visualization
 phase_visualizer.visualize(
-    t_values, x_pred, y_pred, x_true, y_true, r_true, stable_radius=stable_radius
+    t_values,
+    x_pred,
+    y_pred,
+    x_true,
+    y_true,
+    r_true,
+    stable_radius=stable_radius,
+    vector_field_type="lic",
+    pinn_model=model,
+    vector_field_t=5.0,
+    lic_resolution=200,
+    lic_cmap="gray",
 )
 
-# Set titles and labels
-ax1.set_title("Phase Space - Elevated Damped Oscillations")
+
+ax1.set_title("Phase Space")
 ax1.set_xlabel("x")
 ax1.set_ylabel("y")
 ax1.grid(False)
