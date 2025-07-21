@@ -406,7 +406,7 @@ def visualize_trajectory(x0, y0, t_max=15.0, num_points=500):
 
 
 # Visualize the oscillator behavior
-x0, y0 = 0.1, 0.1  # Start near origin
+x0, y0 = 3, 3  # Start near origin
 t_values, x_pred, y_pred, x_true, y_true, r_pred, r_true, y_center, t_10s_idx = (
     visualize_trajectory(x0, y0)
 )
@@ -440,32 +440,6 @@ ax2.set_xlabel("Time")
 ax2.set_ylabel("y")
 ax2.grid(True)
 ax2.legend()
-
-# Evaluate model error over time
-x_error = np.abs(x_pred - x_true)
-y_error = np.abs(y_pred - y_true)
-total_error = np.sqrt(x_error**2 + y_error**2)
-
-# Error plot with log scale (replaces previous x time series subplot)
-ax3 = fig.add_subplot(223)
-ax3.semilogy(t_values, x_error, "r-", label="x Error")
-ax3.semilogy(t_values, y_error, "g-", label="y Error")
-ax3.semilogy(t_values, total_error, "b-", label="Total Error")
-ax3.set_title("Neural Network Prediction Error vs Time")
-ax3.set_xlabel("Time")
-ax3.set_ylabel("Absolute Error (log scale)")
-ax3.grid(True)
-ax3.legend()
-
-# Amplitude plot (shows the damped oscillations around elevated center)
-ax4 = fig.add_subplot(224)
-ax4.plot(t_values, r_pred, "r--", label="Oscillation Amplitude (NN)")
-ax4.plot(t_values, r_true, "b-", alpha=0.7, label="Oscillation Amplitude (True)")
-ax4.set_title("Oscillation Amplitude vs Time\n(relative to elevated center)")
-ax4.set_xlabel("Time")
-ax4.set_ylabel("Amplitude")
-ax4.grid(True)
-ax4.legend()
 
 plt.tight_layout()
 plt.show()
