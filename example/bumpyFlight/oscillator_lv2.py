@@ -79,10 +79,10 @@ def elevated_damped_oscillator_ode(t, state):
 
 
 # Generate training data with numerical integration
-def generate_data(num_samples=5000, t_max=20.0):
+def generate_data(num_samples=10000, t_max=20.0):
     # Generate various initial conditions (near origin) and time points
-    x0_values = np.random.uniform(-0.3, 0.3, num_samples)
-    y0_values = np.random.uniform(-0.3, 0.3, num_samples)
+    x0_values = np.random.uniform(-2, 4, num_samples)
+    y0_values = np.random.uniform(0, 2, num_samples)
     t_values = np.random.uniform(0, t_max, num_samples)
 
     # For each sample, solve ODE from initial condition up to the requested time
@@ -133,7 +133,7 @@ def generate_data(num_samples=5000, t_max=20.0):
 
 # Generate training and test data
 print("Generating training data...")
-X_train, y_train = generate_data(3000)
+X_train, y_train = generate_data(1000)
 print("Generating test data...")
 X_test, y_test = generate_data(500)
 print("Data generation complete!")
@@ -409,7 +409,7 @@ def visualize_trajectory(x0, y0, t_max=15.0, num_points=500):
 x0, y0 = 1, 0.1  # Start near origin
 
 t_values, x_pred, y_pred, x_true, y_true, r_pred, r_true, y_center, t_10s_idx = (
-    visualize_trajectory(0.1, 0.1)
+    visualize_trajectory(x0, y0)
 )
 
 # Create the phase space visualization with vector fields
@@ -420,58 +420,61 @@ phase_visualizer = schwanensee.SchwanenseeVisualizer(ax=ax1)
 # Define the stable oscillation radius
 stable_radius = system.bumpy_r0 * 1.3
 
-# Add vector fields for both the classical ODE and the PINN model
-# phase_visualizer.visualize(
-#     t_values, x_pred, y_pred, x_true, y_true, r_true,
-#     stable_radius=stable_radius,
-#     vector_field_type="none",
-#     pinn_model=model,
-# )
-
-# Arrow-based vector field
-# phase_visualizer.visualize(
-#     t_values, x_pred, y_pred, x_true, y_true, r_true,
-#     stable_radius=stable_radius,
-#     vector_field_type="arrows",
-#     pinn_model=model,
-#     vector_field_t=5.0,
-#     arrow_grid_size=15,
-#     arrow_skip=1,
-#     arrow_color="darkblue"
-# )
-
-# # Streamlines visualization
-# phase_visualizer.visualize(
-#     t_values, x_pred, y_pred, x_true, y_true, r_true,
-#     stable_radius=stable_radius,
-#     vector_field_type="streamlines",
-#     pinn_model=model,
-#     vector_field_t=5.0,
-#     stream_density=1.5,
-#     stream_linewidth=1.2,
-#     stream_color="darkblue",
-#     stream_arrowsize=1.5,
-#     x_range=(-3, 4),
-#     y_range=(-1, 7),
-# )
-
-
-# LIC visualization
+# LIC visualization with phase coloring using clustering
 phase_visualizer.visualize(
     t_values,
     x_pred,
     y_pred,
     x_true,
     y_true,
-    r_true,
-    stable_radius=stable_radius,
     vector_field_type="lic",
     pinn_model=model,
-    vector_field_t=5.0,
+    vector_field_t=1.0,
     lic_resolution=200,
     lic_cmap="gray",
+    lic_alpha=0.7,
+    lic_color_by_phase=True,
+    lic_phase_method="cluster",
 )
 
+# LIC visualization with phase coloring using rule-based approach
+ax2 = fig.add_subplot(222)
+phase_visualizer2 = schwanensee.SchwanenseeVisualizer(ax=ax2)
+phase_visualizer2.visualize(
+    t_values,
+    x_pred,
+    y_pred,
+    x_true,
+    y_true,
+    vector_field_type="lic",
+    pinn_model=model,
+    vector_field_t=1.0,
+    lic_resolution=200,
+    lic_cmap="gray",
+    lic_alpha=0.7,
+    lic_color_by_phase=True,
+    lic_phase_method="rule",
+)
+
+# Streamlines visualization
+ax4 = fig.add_subplot(223)
+phase_visualizer4 = schwanensee.SchwanenseeVisualizer(ax=ax4)
+phase_visualizer4.visualize(
+    t_values,
+    x_pred,
+    y_pred,
+    x_true,
+    y_true,
+    vector_field_type="streamlines",
+    pinn_model=model,
+    vector_field_t=1.0,
+    stream_density=1.5,
+    stream_linewidth=1.2,
+    stream_color="darkblue",
+    stream_arrowsize=1.5,
+    x_range=(-3, 4),
+    y_range=(-1, 7),
+)
 
 ax1.set_title("Phase Space")
 ax1.set_xlabel("x")
@@ -480,7 +483,7 @@ ax1.grid(False)
 ax1.legend()
 
 # Time series for y
-ax2 = fig.add_subplot(222)
+ax2 = fig.add_subplot(224)
 ax2.plot(t_values, y_pred, "g--", label="y (NN)")
 ax2.plot(t_values, y_true, "g-", alpha=0.7, label="y (True)")
 ax2.set_title("y-Coordinate vs Time")
