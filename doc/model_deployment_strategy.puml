@@ -33,14 +33,21 @@ if ("Patienten-kritische\n Entscheidung?") then (Ja)
     end note
   endif
 else (Nein)
-  if ("Pattern recognition\n+ anschließende Prozess Aktivierung?\n('AI as a Sensor')") then (Ja)
+  if ("Pattern recognition\nmit anschließender Prozessaktivierung?\n('AI as a Sensor')") then (Ja)
     split
       #orange:PINN;
     split again
       #orange:SLM;
     end split
   else (Nein)
-    :Strategie dazu noch nicht beschlossen;
+    :Keine AI Verwendung;
+    note right
+       andere Methoden patientenorientiert
+       nicht risikovertretbar:
+       - Cloud-Ausfall
+       - Systemüberlastung
+       - AI als Blackbox (u.a. biasing)
+    end note
   endif
 endif
 
