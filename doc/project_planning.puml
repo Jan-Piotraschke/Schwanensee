@@ -1,0 +1,48 @@
+@startgantt
+Project starts 2025-08-01
+
+printscale weekly
+
+-- Engineering --
+
+' == Engineering Path ==
+[Engineering: PINN Prototyping] starts 2025-10-01
+[Engineering: PINN Prototyping] requires 90 days
+
+[Prototype completed] happens at [Engineering: PINN Prototyping]'s end
+
+[Engineering: 3D Phasenprognostik] requires 60 days
+note bottom
+  - clustering von "Schwänen", wo welche Phase beginnt
+  - ggf. einschließlich Bifurkationsdiagramm Erzeugung
+end note
+[Engineering: 3D Phasenprognostik] starts at 2026-02-01
+
+-- Data --
+
+' == Data Path ==
+[Data: Data Labeling] starts 2025-08-01
+[Data: Data Labeling] requires 100 days
+
+[Data: Realtime Data Stream] starts 2025-08-01
+[Data: Realtime Data Stream] requires 100 days
+note bottom
+  - Verwendung eines Simulators, welches kompartibel mit Standardphysikmodelle aus [Engineering: PINN Prototyping] ist
+end note
+
+[Data: Real Data Stream] starts 2026-07-01
+
+-- Architecture --
+
+' == Architecture Path ==
+[Architecture: System Architecture] starts 2025-08-15 and lasts 30 days
+
+-- Compliance --
+
+' == Compliance Path ==
+[Compliance: AI Standard Development] starts 2026-07-01
+note bottom
+  -  Einbringung des Projektwissens
+end note
+
+@endgantt

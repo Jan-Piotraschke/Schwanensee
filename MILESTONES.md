@@ -1,5 +1,7 @@
 # Project Milestones
 
+![project planing](out/doc/project_planning/project_planning.png)
+
 ## v1.0 - Phasenprognostik
 3-Dimensionale (kurz: 3D) (Input x + Output y + Hiddenparameter p (z.B. Zeit)) basierte Phasenprognostik (ggf. zusätzlich Bifurkationsdiagramm) eines Physik Models mit Hilfe eines PINN.
 
