@@ -1,46 +1,71 @@
 @startgantt
-Project starts 2025-08-01
+Project starts 2025-08-0
 
 printscale weekly
 
--- Engineering --
+-- Physics --
 
-' == Engineering Path ==
-[Engineering: PINN Prototyping] starts 2025-10-01
-[Engineering: PINN Prototyping] requires 90 days
+' == Physics Path ==
+[PINN Prototyping] starts 2025-10-01 and ends 2026-02-28
+[PINN Prototyping] is colored in Lavender
+note bottom
+  - Überprüfung des physikalischen Models
+  - analytical analysis der physikalischen Modelparameter
+end note
 
-[Prototype completed] happens at [Engineering: PINN Prototyping]'s end
+[Prototype completed] happens at [PINN Prototyping]'s end
 
-[Engineering: 3D Phasenprognostik] requires 60 days
+[3D Phasenprognostik] starts at 2026-04-01 and requires 60 days
+[3D Phasenprognostik] is colored in Lavender
 note bottom
   - clustering von "Schwänen", wo welche Phase beginnt
   - ggf. einschließlich Bifurkationsdiagramm Erzeugung
 end note
-[Engineering: 3D Phasenprognostik] starts at 2026-02-01
+
+[Risks Assessment Decision: 'Go' or 'No-Go'] happens 15 days after [3D Phasenprognostik]'s end
+[Risks Assessment Decision: 'Go' or 'No-Go'] is colored in Red
 
 -- Data --
 
 ' == Data Path ==
-[Data: Data Labeling] starts 2025-08-01
-[Data: Data Labeling] requires 100 days
+[Data Exploration] starts 2025-08-04 and requires 15 days
+[Data Exploration] is colored in SkyBlue
 
-[Data: Realtime Data Stream] starts 2025-08-01
-[Data: Realtime Data Stream] requires 100 days
+[Data Labeling] starts after [Data Exploration]'s end
+[Data Labeling] starts 2025-09-01 and requires 100 days
+[Data Labeling] is colored in SkyBlue
+
+[Realtime in-silico Surrogate Data Stream] starts 2025-10-01 and ends 2026-02-28
+[Realtime in-silico Surrogate Data Stream] is colored in SkyBlue
 note bottom
-  - Verwendung eines Simulators, welches kompartibel mit Standardphysikmodelle aus [Engineering: PINN Prototyping] ist
+  - computational Simulator, welcher kompartibel mit Physikmodellen aus [PINN Prototyping] ist
+  - data stream pipeline
+  - Surrogate wird Daten in echtzeit für den Input des PINN simulieren
 end note
 
-[Data: Real Data Stream] starts 2026-07-01
+[Real Data Stream Connection] starts after [Risks Assessment Decision: 'Go' or 'No-Go']'s end
+[Real Data Stream Connection] starts 2026-07-01
+[Real Data Stream Connection] is colored in SkyBlue
+
+[Mechanical Surrogate Data Stream] starts after [Risks Assessment Decision: 'Go' or 'No-Go']'s end
+[Mechanical Surrogate Data Stream] starts 2026-07-01
+[Mechanical Surrogate Data Stream] is colored in SkyBlue
+note bottom
+  - "real world" Simulator
+end note
 
 -- Architecture --
 
 ' == Architecture Path ==
-[Architecture: System Architecture] starts 2025-08-15 and lasts 30 days
+[System Architecture Definition] starts 2025-09-15 and requires 30 days
+[System Architecture Definition] is colored in Wheat
 
 -- Compliance --
 
 ' == Compliance Path ==
-[Compliance: AI Standard Development] starts 2026-07-01
+[AI Standard Development] starts after [Risks Assessment Decision: 'Go' or 'No-Go']'s end
+[AI Standard Development] starts 2026-07-01
+[AI Standard Development] is colored in PaleGreen
 note bottom
   -  Einbringung des Projektwissens
 end note
