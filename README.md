@@ -82,3 +82,7 @@ Explicitly speaking, the PDEs get embeded into the cost function of the NN. This
 With that, the embeded PDEs act as a regularization agent that limits the space of admissible solutions of the NN training.
 The PINN alone does not find any unknown/missing terms of the PDE problem.
 **It only adjusts the unknown PDE parameters** as part of its cost function.
+
+### Medical AI Deployment Strategy (similar to the mission of the IAEA)
+
+![alt text](out/doc/model_deployment_strategy/ModelDeploymentStrategy.png)
