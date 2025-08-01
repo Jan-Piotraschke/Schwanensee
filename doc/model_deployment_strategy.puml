@@ -20,20 +20,21 @@ if ("Patienten-kritische\n Entscheidung?") then (Ja)
   if ("Physik des Objekts\n ausreichend verstanden?") then (Ja)
     :Physikmodell;
     note left
-      + White Box Insight durch Physik
-      + interpretierbar (Bifurkation und Co.)
-      + Digital Twin Sync Fähigkeit
+      + White Box Insight
+      + interpretierbar
+      + Twin Sync Fähigkeit
     end note
   else (Nein)
     #orange:PINN;
     note right
       + Bessere Generalisierung
         bei sparse/noisy Daten
-      - ggf. computational constraints
+      - computational constraints
+        bei digital Computer
     end note
   endif
 else (Nein)
-  if ("Pattern recognition\nmit anschließender Prozessaktivierung?\n('AI as a Sensor')") then (Ja)
+  if ("Pattern recognition\nmit anschließender\nProzessaktivierung?\n('AI as a Sensor')") then (Ja)
     split
       #orange:PINN;
     split again
@@ -42,11 +43,12 @@ else (Nein)
   else (Nein)
     :Keine AI Verwendung;
     note right
-       andere Methoden patientenorientiert
+       andere Methoden
+       patientenorientiert
        nicht risikovertretbar:
        - Cloud-Ausfall
        - Systemüberlastung
-       - AI als Blackbox (u.a. biasing)
+       - AI Blackbox (u.a. biasing)
     end note
   endif
 endif
@@ -55,7 +57,7 @@ if (improve PINN insight?) then (Ja)
   #orange:PINN + SLM;
   note left
     add PINN to a SLM domain (z.B. japanisch / deutsch) language model
-    its like giving a child (=SLM) a tool (=PINN) to handle and explore its behaviour
+    its like giving a child (SLM) a tool (PINN) to handle and explore its behaviour
   end note
 else (Nein)
 endif
