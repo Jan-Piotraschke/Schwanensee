@@ -85,4 +85,8 @@ The PINN alone does not find any unknown/missing terms of the PDE problem.
 
 ### Medical AI Deployment Strategy (similar to the mission of the IAEA)
 
+Praying and hoping by any means to save a loved one, even with the usage of an unknown AI hyperspace.
+
+But for this we have to ensure good AI governance and safety.
+
 ![alt text](out/doc/model_deployment_strategy/ModelDeploymentStrategy.png)
