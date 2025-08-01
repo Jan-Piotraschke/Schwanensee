@@ -51,6 +51,15 @@ else (Nein)
   endif
 endif
 
+if (improve PINN insight?) then (Ja)
+  #orange:PINN + SLM;
+  note left
+    add PINN to a SLM domain (z.B. japanisch / deutsch) language model
+    its like giving a child (=SLM) a tool (=PINN) to handle and explore its behaviour
+  end note
+else (Nein)
+endif
+
 stop
 
 skinparam LegendBackgroundColor #FFFFFF
