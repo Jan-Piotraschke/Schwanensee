@@ -83,10 +83,23 @@ With that, the embeded PDEs act as a regularization agent that limits the space 
 The PINN alone does not find any unknown/missing terms of the PDE problem.
 **It only adjusts the unknown PDE parameters** as part of its cost function.
 
-### Medical AI Deployment Strategy (similar to the mission of the IAEA)
+## Medical AI Deployment Strategy (similar to the mission of the IAEA)
 
 Praying and hoping by any means to save a loved one, even with the usage of an unknown AI hyperspace.
 
 But for this we have to ensure good AI governance and safety.
+
+### Model Limitations
+
+There are two important limitations of our PINN approach currently, both stemming from the fact that we don't understand the behavior of the NN layers behind the input layer:
+
+1. **PINNs are fundamentally heuristic.** Unlike traditional physical models, they lack analytical interpretability, preventing precise stability analysis based on differential equation derivatives.
+2. **PINNs cannot function as syncable Digital Twins.** We cannot establish clear correlations between changes in neural network parameters (or weight subsets) and adjustments to the physics model parameters. Simulating all possible weight configurations beforehand is practically impossible, making precise parameter adjustments unfeasible when the model is deployed as a standalone system in the field. This presents a significant challenge when attempting to create an adjustable Digital Twin that can be synchronized with its real-world counterpart.
+
+I would love to be proved wrong.
+
+### Intended Use Cases
+
+Enhance the monitoring capability of a model's real-world counterpart by intersecting the data-learning AI approach with the physical model approach.
 
 ![alt text](out/doc/model_deployment_strategy/ModelDeploymentStrategy.png)
