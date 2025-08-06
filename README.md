@@ -101,7 +101,7 @@ DDE_BACKEND=tensorflow python example/bumpyFlight/oscillator_lv2.py
 $env:DDE_BACKEND = "tensorflow"; python example/bumpyFlight/oscillator_lv2.py
 ```
 
-### Starter Example - Sine wave
+### 1. Starter Example - Sine wave
 
 Let's start by regenerating a simple sine wave using deepxde to warm ourselves up with the PINN approach:
 
@@ -112,7 +112,7 @@ $env:DDE_BACKEND = "tensorflow.compat.v1"; python example/sine/sine.py
 Awesome! You see that the PINN could reproduce the pattern of the sine wave.<br/>
 Let's move on to a more advanced example.
 
-### Intermediate Example - Lorenz System
+### 2. Intermediate Example - Lorenz System
 
 One of the simplest multicomponent differential equation systems that still shows interesting chaotic behaviour is the famous Lorenz system.
 
@@ -122,13 +122,13 @@ DDE_BACKEND=tensorflow.compat.v1 python example/lorenz/lorenz_w_exogenous_stimul
 DDE_BACKEND=tensorflow python example/lorenz/lorenz_lv2.py
 ```
 
-### Real Example - What a bumpy flight
+### 3. Real Example - What a bumpy flight
 
 ```bash
 DDE_BACKEND=tensorflow python example/bumpyFlight/oscillator_lv2.py
 ```
 
-### Complete Framework Example: Using your PINN within C++
+### 4. Complete Framework Example: Using your PINN within C++
 
 One last gimmick for you.<br/>
 As I am an engineer for applications in medical technology and C++ is currently the standard programming language there, I want to provide an example of how you can use your PINN directly within C++.
