@@ -35,6 +35,8 @@ With that, the embeded PDEs act as a regularization agent that limits the space 
 The PINN alone does not find any unknown/missing terms of the PDE problem.<br/>
 **It only adjusts the unknown PDE parameters** as part of its cost function.
 
+PINN is a **state mapping model** from $[t,x_0,y_0]→[x(t),y(t)]$.<br/>
+Due to benefits in visualizing the Phase Space, we use an adapted approach of this mapping: $[t,x_0,y_0]→[x(t),y(t),x'(t),y'(t)]$ to plot the vector field immediately, not just the trajectory.
 
 ## Installation
 
