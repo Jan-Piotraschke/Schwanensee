@@ -1,8 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy
+import scipy.integrate
+from matplotlib.colors import Normalize
+import cv2
+import tempfile
+import os
 from .phase import PhaseIdentifier
 from scipy.interpolate import RegularGridInterpolator
 import scipy
+from sklearn.cluster import DBSCAN
+import matplotlib
 
 
 class SchwanenseeVisualizer:
@@ -21,17 +29,13 @@ class SchwanenseeVisualizer:
             "descent": "#5E94CE",  # Dark grey (middle priority)
             "rise": "#AEAEAE",  # Light grey (lowest priority)
         }
-
-        # Sort phases by priority (lowest to highest)
         self.phases_by_priority = ["rise", "descent", "stable"]
-
         self.phase_identifier = PhaseIdentifier()
 
     def plot_trajectories(self, x_pred, y_pred, x_true, y_true, t_10s_idx):
         """
         Plot the predicted and true trajectories.
         """
-        # Split the trajectory into before and after t=10s for NN prediction
         self.ax.plot(
             x_pred[: t_10s_idx + 1],
             y_pred[: t_10s_idx + 1],
@@ -48,11 +52,7 @@ class SchwanenseeVisualizer:
             linewidth=2,
             label="NN Prediction (after 10s)",
         )
-
-        # Plot true solution
         self.ax.plot(x_true, y_true, "b-", linewidth=2, label="True Solution")
-
-        # Add square marker at the 10s position
         self.ax.scatter(
             x_pred[t_10s_idx],
             y_pred[t_10s_idx],
@@ -70,8 +70,6 @@ class SchwanenseeVisualizer:
         x_range=(-2, 4),
         y_range=(0, 2),
         grid_density=20,
-        x0=1.0,
-        y0=0.1,
         t_max=15.0,
         num_points=500,
         arrow_scale=0.05,
@@ -86,27 +84,23 @@ class SchwanenseeVisualizer:
         - indication of state change speed and its acceleration / deceleration
         - spotting critical points as they appear with very short arrows
         """
-
-        # Generate evenly spaced starting points
         num_points_x = 10
         num_points_y = 10
-        x_vals = np.linspace(x_range[0], x_range[1], num_points_x)
-        y_vals = np.linspace(y_range[0], y_range[1], num_points_y)
-        start_points = [(xx, yy) for xx in x_vals for yy in y_vals]  # 100 points
+        x_vals = np.linspace(0, 3, num_points_x)
+        y_vals = np.linspace(0, 2, num_points_y)
+        start_points = [(xx, yy) for xx in x_vals for yy in y_vals]
 
-        # Allowed plotting region
-        x_min, x_max = -3, 4
-        y_min, y_max = -1, 7
+        x_min, x_max = x_range
+        y_min, y_max = y_range
 
         for start_x, start_y in start_points:
-            # Learned RHS from PINN
+
             def learned_rhs_func(t, state):
                 x_val, y_val = float(state[0]), float(state[1])
                 inp = np.array([[t, x_val, y_val]], dtype=np.float32)
                 pred = pinn_model.predict(inp)
                 return [float(pred[0, 2]), float(pred[0, 3])]
 
-            # Integrate PINN trajectory
             t_eval = np.linspace(0, t_max, num_points)
             sol = scipy.integrate.solve_ivp(
                 learned_rhs_func,
@@ -116,10 +110,9 @@ class SchwanenseeVisualizer:
                 rtol=1e-6,
                 atol=1e-8,
             )
+
             x_traj = sol.y[0]
             y_traj = sol.y[1]
-
-            # NOTE: Keep only points inside allowed region
             mask = (
                 (x_traj >= x_min)
                 & (x_traj <= x_max)
@@ -127,25 +120,22 @@ class SchwanenseeVisualizer:
                 & (y_traj <= y_max)
             )
             if not np.any(mask):
-                continue  # skip if nothing inside
+                continue
 
             x_traj = x_traj[mask]
             y_traj = y_traj[mask]
             t_eval_masked = t_eval[mask]
 
-            # Derivatives along masked path
             inputs = np.column_stack([t_eval_masked, x_traj, y_traj])
             preds = pinn_model.predict(inputs)
             dx_dt = preds[:, 2]
             dy_dt = preds[:, 3]
 
-            # Normalize for display
             mag = np.sqrt(dx_dt**2 + dy_dt**2)
             mag[mag == 0] = 1.0
             dx_dt /= mag
             dy_dt /= mag
 
-            # Arrows along masked path
             self.ax.quiver(
                 x_traj,
                 y_traj,
@@ -159,79 +149,20 @@ class SchwanenseeVisualizer:
                 alpha=alpha,
             )
 
-    def plot_streamlines(
+    def plot_lic(
         self,
         pinn_model,
         t=0.0,
-        x_range=(-3, 3),
-        y_range=(0, 6),
-        density=1.0,
-        linewidth=1.0,
-        color="darkblue",
-        arrowsize=1.2,
-        arrowstyle="->",
-        min_length=0.1,
-        start_points=None,
-        grid_size=40,
-    ):
-        """
-        Add streamlines to visualize the flow in the vector field using direct derivative outputs.
-        Fixed to ensure correct alignment with trajectories.
-
-        Physical insight:
-        - visualizing boundaries between different flow regimes easy visible
-        """
-        # Create a higher resolution grid for the vector field
-        # NOTE: The ordering is crucial - numpy's meshgrid uses (x,y) but matplotlib's
-        # streamplot expects arrays where first dimension is y, second is x
-        y_grid = np.linspace(y_range[0], y_range[1], grid_size)
-        x_grid = np.linspace(x_range[0], x_range[1], grid_size)
-        Y, X = np.meshgrid(y_grid, x_grid)  # Note: Y, X order for meshgrid
-
-        # Flatten in correct order for prediction
-        points = np.zeros((grid_size * grid_size, 3))
-        points[:, 0] = t  # Fixed time
-        points[:, 1] = X.flatten()  # x coordinates
-        points[:, 2] = Y.flatten()  # y coordinates
-
-        # Get the predicted derivatives directly from the model
-        predictions = pinn_model.predict(points)
-
-        # Extract derivatives (components 2 and 3)
-        dx_dt = predictions[:, 2].reshape(grid_size, grid_size)
-        dy_dt = predictions[:, 3].reshape(grid_size, grid_size)
-
-        # Create the streamplot
-        # NOTE: streamplot takes x_grid, y_grid as 1D arrays, and U,V as 2D arrays
-        # where U[i,j], V[i,j] is the vector at position (x_grid[j], y_grid[i])
-        streamlines = self.ax.streamplot(
-            x_grid,
-            y_grid,
-            dx_dt.T,
-            dy_dt.T,
-            density=density,
-            linewidth=linewidth,
-            color=color,
-            arrowsize=arrowsize,
-            arrowstyle=arrowstyle,
-            integration_direction="forward",
-            minlength=min_length,
-            start_points=start_points,
-        )
-
-        return streamlines
-
-    def plot_lic(
-        self,
-        model_function,
-        t=0.0,
-        x_range=(-3, 3),
-        y_range=(0, 6),
+        x_range=(-3, 4),
+        y_range=(-1, 7),
+        grid_density=200,
+        t_max=15.0,
+        num_points=500,
+        kernel_length=20,
+        noise_amp=400,
+        cmap="Greys_r",
         resolution=200,
-        kernel_length=31,
-        cmap="gray",
-        alpha=0.8,
-        color_by_phase=False,
+        color_by_phase=True,
         phase_method="rule",  # "rule" or "cluster"
     ):
         """
@@ -245,182 +176,133 @@ class SchwanenseeVisualizer:
         - reveal of the dense flow pattern
         - stencil source for the drawing of the phases into the Phase Space
         """
-        # Ensure kernel length is odd
-        if kernel_length % 2 == 0:
-            kernel_length += 1
+        # Step 1: Generate vector field grid for LIC
+        x_vals = np.linspace(x_range[0], x_range[1], grid_density)
+        y_vals = np.linspace(y_range[0], y_range[1], grid_density)
+        X, Y = np.meshgrid(x_vals, y_vals)
+        inputs = np.column_stack([np.full(X.size, 0.0), X.ravel(), Y.ravel()])
 
-        # Create a grid for vector field computation
-        x_grid = np.linspace(x_range[0], x_range[1], resolution)
-        y_grid = np.linspace(y_range[0], y_range[1], resolution)
-        X, Y = np.meshgrid(x_grid, y_grid)
+        # Get model predictions for the grid
+        preds = pinn_model.predict(inputs)
+        U = preds[:, 2].reshape(X.shape)
+        V = preds[:, 3].reshape(X.shape)
 
-        # Initialize arrays for the vector components
-        U = np.zeros_like(X)
-        V = np.zeros_like(Y)
+        # Normalize for LIC
+        mag = np.sqrt(U**2 + V**2)
+        U_norm = U / (mag + 1e-8)
+        V_norm = V / (mag + 1e-8)
 
-        # Calculate vector components at each grid point using model's direct derivative outputs
-        inputs = np.zeros((resolution * resolution, 3))
-        inputs[:, 0] = t  # Fixed time
-        inputs[:, 1] = X.flatten()  # Current x
-        inputs[:, 2] = Y.flatten()  # Current y
+        # Step 2: Create density map from trajectory paths
+        density_map = np.zeros_like(X)
 
-        # Get the predicted derivatives directly
-        predictions = model_function.predict(inputs)
+        # Generate evenly spaced starting points
+        num_points_x = 10
+        num_points_y = 10
 
-        # Extract derivatives (components 2 and 3)
-        dx_dt = predictions[:, 2]
-        dy_dt = predictions[:, 3]
+        start_x_vals = np.linspace(0, 3, num_points_x)
+        start_y_vals = np.linspace(0, 2, num_points_y)
 
-        # Reshape to grid
-        U = dx_dt.reshape(resolution, resolution)
-        V = dy_dt.reshape(resolution, resolution)
+        # Define allowed plotting region
+        x_min, x_max = x_range
+        y_min, y_max = y_range
 
-        # Normalize the vector field for LIC
-        magnitude = np.sqrt(U**2 + V**2)
-        eps = 1e-10  # Small value to avoid division by zero
-        U_norm = U / (magnitude + eps)
-        V_norm = V / (magnitude + eps)
+        for start_x in start_x_vals:
+            for start_y in start_y_vals:
+                # Learned RHS from PINN
+                def learned_rhs_func(t, state):
+                    x_val, y_val = float(state[0]), float(state[1])
+                    inp = np.array([[t, x_val, y_val]], dtype=np.float32)
+                    pred = pinn_model.predict(inp)
+                    return [float(pred[0, 2]), float(pred[0, 3])]
 
-        # Create white noise texture for LIC input
-        texture = np.random.rand(resolution, resolution)
+                # Integrate PINN trajectory
+                t_eval = np.linspace(0, t_max, num_points)
+                sol = scipy.integrate.solve_ivp(
+                    learned_rhs_func,
+                    (0.0, t_max),
+                    [start_x, start_y],
+                    t_eval=t_eval,
+                    rtol=1e-6,
+                    atol=1e-8,
+                )
 
-        # Apply LIC - we'll use a more accurate implementation than before
-        lic_result = np.zeros_like(texture)
-        half_kernel = kernel_length // 2
+                x_traj = sol.y[0]
+                y_traj = sol.y[1]
 
-        # For each pixel, trace streamline and average the texture values
-        for i in range(resolution):
-            for j in range(resolution):
-                # Starting position (in pixel coordinates)
-                x, y = j, i
+                # Keep only points inside allowed region
+                mask = (
+                    (x_traj >= x_min)
+                    & (x_traj <= x_max)
+                    & (y_traj >= y_min)
+                    & (y_traj <= y_max)
+                )
+                if not np.any(mask):
+                    continue  # skip if nothing inside
 
-                # Initialize accumulators
-                acc = texture[i, j]
-                weight_sum = 1.0
+                x_traj = x_traj[mask]
+                y_traj = y_traj[mask]
 
-                # Forward integration
-                x_pos, y_pos = x, y
-                for k in range(1, half_kernel + 1):
-                    # Interpolate velocity at current position
-                    ix, iy = int(x_pos), int(y_pos)
+                # Map trajectory to grid cells and increment density
+                xi = np.searchsorted(x_vals, x_traj)
+                yi = np.searchsorted(y_vals, y_traj)
 
-                    # Check if we're still in the grid
-                    if ix < 0 or ix >= resolution - 1 or iy < 0 or iy >= resolution - 1:
-                        break
+                # Clip indices to prevent out-of-bounds errors
+                xi = np.clip(xi, 0, grid_density - 1)
+                yi = np.clip(yi, 0, grid_density - 1)
 
-                    # Bilinear interpolation weights
-                    wx = x_pos - ix
-                    wy = y_pos - iy
+                # Add to density map - weighted by time to emphasize steady states
+                for i in range(len(xi)):
+                    density_map[yi[i], xi[i]] += 1 + i / len(
+                        xi
+                    )  # More weight to later points
 
-                    # Interpolate vector components
-                    u_interp = (
-                        (1 - wx) * (1 - wy) * U_norm[iy, ix]
-                        + wx * (1 - wy) * U_norm[iy, ix + 1]
-                        + (1 - wx) * wy * U_norm[iy + 1, ix]
-                        + wx * wy * U_norm[iy + 1, ix + 1]
-                    )
-                    v_interp = (
-                        (1 - wx) * (1 - wy) * V_norm[iy, ix]
-                        + wx * (1 - wy) * V_norm[iy, ix + 1]
-                        + (1 - wx) * wy * V_norm[iy + 1, ix]
-                        + wx * wy * V_norm[iy + 1, ix + 1]
-                    )
+        # Normalize density
+        density_map = density_map / (density_map.max() + 1e-8)
 
-                    # Update position (simple Euler step)
-                    x_pos += u_interp
-                    y_pos += v_interp
+        # Create mask
+        levels = [0.0, 0.1, 0.3, 0.7, 1.0]
+        thresholds = [0.01, 0.1, 0.3, 0.7]
+        mask = np.zeros_like(density_map)
 
-                    # Check if still in bounds
-                    if 0 <= x_pos < resolution - 1 and 0 <= y_pos < resolution - 1:
-                        # Interpolate texture value at new position
-                        ix, iy = int(x_pos), int(y_pos)
-                        wx = x_pos - ix
-                        wy = y_pos - iy
+        for i in range(len(thresholds)):
+            mask[density_map >= thresholds[i]] = levels[i + 1]
 
-                        tex_val = (
-                            (1 - wx) * (1 - wy) * texture[iy, ix]
-                            + wx * (1 - wy) * texture[iy, ix + 1]
-                            + (1 - wx) * wy * texture[iy + 1, ix]
-                            + wx * wy * texture[iy + 1, ix + 1]
-                        )
+        # Generate white noise texture
+        noise = np.random.rand(*X.shape) * noise_amp
 
-                        # Weight by distance from center (higher weight near center)
-                        weight = 1.0 - k / half_kernel
-                        acc += weight * tex_val
-                        weight_sum += weight
-                    else:
-                        break
+        # LIC calculation
+        def lic_texture(U, V, noise, length):
+            tex = np.zeros_like(noise)
+            for j in range(noise.shape[0]):
+                for i in range(noise.shape[1]):
+                    vals = []
+                    for s in range(-length // 2, length // 2):
+                        xi = int(i + s * U[j, i])
+                        yj = int(j + s * V[j, i])
+                        if 0 <= xi < noise.shape[1] and 0 <= yj < noise.shape[0]:
+                            vals.append(noise[yj, xi])
+                    if vals:
+                        tex[j, i] = np.mean(vals)
+            return tex
 
-                # Backward integration
-                x_pos, y_pos = x, y
-                for k in range(1, half_kernel + 1):
-                    # Interpolate velocity at current position
-                    ix, iy = int(x_pos), int(y_pos)
+        lic_img = lic_texture(U_norm, V_norm, noise, kernel_length)
 
-                    # Check if we're still in the grid
-                    if ix < 0 or ix >= resolution - 1 or iy < 0 or iy >= resolution - 1:
-                        break
+        # Apply mask
+        lic_weighted = lic_img * mask
 
-                    # Bilinear interpolation weights
-                    wx = x_pos - ix
-                    wy = y_pos - iy
-
-                    # Interpolate vector components
-                    u_interp = (
-                        (1 - wx) * (1 - wy) * U_norm[iy, ix]
-                        + wx * (1 - wy) * U_norm[iy, ix + 1]
-                        + (1 - wx) * wy * U_norm[iy + 1, ix]
-                        + wx * wy * U_norm[iy + 1, ix + 1]
-                    )
-                    v_interp = (
-                        (1 - wx) * (1 - wy) * V_norm[iy, ix]
-                        + wx * (1 - wy) * V_norm[iy, ix + 1]
-                        + (1 - wx) * wy * V_norm[iy + 1, ix]
-                        + wx * wy * V_norm[iy + 1, ix + 1]
-                    )
-
-                    # Update position (simple Euler step, but backward)
-                    x_pos -= u_interp
-                    y_pos -= v_interp
-
-                    # Check if still in bounds
-                    if 0 <= x_pos < resolution - 1 and 0 <= y_pos < resolution - 1:
-                        # Interpolate texture value at new position
-                        ix, iy = int(x_pos), int(y_pos)
-                        wx = x_pos - ix
-                        wy = y_pos - iy
-
-                        tex_val = (
-                            (1 - wx) * (1 - wy) * texture[iy, ix]
-                            + wx * (1 - wy) * texture[iy, ix + 1]
-                            + (1 - wx) * wy * texture[iy + 1, ix]
-                            + wx * wy * texture[iy + 1, ix + 1]
-                        )
-
-                        # Weight by distance from center (higher weight near center)
-                        weight = 1.0 - k / half_kernel
-                        acc += weight * tex_val
-                        weight_sum += weight
-                    else:
-                        break
-
-                # Store average
-                lic_result[i, j] = acc / weight_sum
-
-        # Apply some contrast enhancement to make flow structure more visible
-        lic_result = (lic_result - np.min(lic_result)) / (
-            np.max(lic_result) - np.min(lic_result)
-        )
-
-        # Plot the LIC image
-        img = self.ax.imshow(
-            lic_result,
+        # Plot
+        self.ax.imshow(
+            lic_weighted,
             extent=[x_range[0], x_range[1], y_range[0], y_range[1]],
             origin="lower",
             cmap=cmap,
-            alpha=alpha,
-            interpolation="bicubic",  # Smooth interpolation for better visualization
+            alpha=0.7,
+            norm=Normalize(vmin=0, vmax=lic_weighted.max()),
         )
+
+        self.ax.set_xlabel("x")
+        self.ax.set_ylabel("y")
+        self.ax.set_title("Reduced LIC of PINN Vector Field")
 
         # Add phase coloring if requested
         if color_by_phase:
@@ -428,13 +310,13 @@ class SchwanenseeVisualizer:
             if phase_method.lower() == "cluster":
                 phases, X_phase, Y_phase, field = (
                     self.phase_identifier.cluster_based_classification(
-                        model_function, t, x_range, y_range, grid_size=50, n_clusters=3
+                        pinn_model, t, x_range, y_range, grid_size=50, n_clusters=3
                     )
                 )
             else:  # Default to rule-based
                 phases, X_phase, Y_phase, field = (
                     self.phase_identifier.rule_based_classification(
-                        model_function, t, x_range, y_range, grid_size=50
+                        pinn_model, t, x_range, y_range, grid_size=50
                     )
                 )
 
@@ -505,7 +387,172 @@ class SchwanenseeVisualizer:
                 interpolation="bicubic",
             )
 
-        return img
+    def highlight_circular_flow_from_density(
+        self,
+        pinn_model,
+        x_range=(-3, 4),
+        y_range=(-1, 7),
+        blur_radius=5,
+        white_threshold=0.98,
+        morph_kernel_size=3,
+        min_area=30,
+        color="orange",
+    ):
+        """
+        Detect the bright-white elliptical loop from the arrow density map and plot it.
+
+        Uses near-maximum intensity pixels to isolate the core loop region.
+        """
+
+        # 1. Create arrow density image (from plot_arrow_density_imaging)
+        fig, ax = plt.subplots(figsize=(6, 6), facecolor="white")
+        ax.axis("off")
+        tmp_vis = SchwanenseeVisualizer(ax=ax)
+        tmp_vis.plot_vector_field(pinn_model, x_range=x_range, y_range=y_range)
+        plt.axis("off")
+
+        tmpfile = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        tmp_path = tmpfile.name
+        plt.savefig(
+            tmp_path, dpi=300, bbox_inches="tight", pad_inches=0, transparent=False
+        )
+        plt.close(fig)
+
+        img = cv2.imread(tmp_path, cv2.IMREAD_GRAYSCALE)
+        os.unlink(tmp_path)
+
+        # 2. Invert if needed
+        if np.mean(img) > 127:
+            img = cv2.bitwise_not(img)
+
+        # 3. Blur & normalize
+        blurred = cv2.GaussianBlur(img, (blur_radius, blur_radius), 0)
+        norm_img = blurred.astype(np.float32) / 255.0
+
+        # 4. White threshold mask (near-maximum intensity)
+        max_val = norm_img.max()
+        mask = (norm_img >= white_threshold * max_val).astype(np.uint8) * 255
+
+        # 5. Morphological closing to fill gaps
+        kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+        # 6. Remove small specks by keeping largest contour
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            print("No bright-white loop found.")
+            return None
+
+        largest_contour = max(contours, key=cv2.contourArea)
+        if cv2.contourArea(largest_contour) < min_area:
+            print("White region too small.")
+            return None
+
+        # 7. Fit ellipse to the white region
+        if len(largest_contour) >= 5:
+            ellipse = cv2.fitEllipse(largest_contour)
+            (cx, cy), (width, height), angle = ellipse
+
+            img_h, img_w = norm_img.shape
+            cx_data = x_range[0] + (cx / img_w) * (x_range[1] - x_range[0])
+            cy_data = y_range[0] + ((img_h - cy) / img_h) * (y_range[1] - y_range[0])
+            width_data = (width / img_w) * (x_range[1] - x_range[0])
+            height_data = (height / img_h) * (y_range[1] - y_range[0])
+
+            # 8. Draw ellipse
+            ellipse_patch = matplotlib.patches.Ellipse(
+                (cx_data, cy_data),
+                width=width_data,
+                height=height_data,
+                angle=-angle,
+                edgecolor=color,
+                facecolor="none",
+                linewidth=2,
+                label="Stable Oscillation",
+            )
+            self.ax.add_patch(ellipse_patch)
+            self.ax.legend()
+
+            # 9. Return ellipse parameters for later analysis
+            return {
+                "center": (cx_data, cy_data),
+                "width": width_data,
+                "height": height_data,
+                "angle": -angle,
+            }
+        else:
+            print("Not enough points to fit ellipse.")
+            return None
+
+    def plot_arrow_density_imaging(
+        self,
+        pinn_model,
+        x_range=(-3, 4),
+        y_range=(-1, 7),
+        blur_radius=1,
+        cmap="hot",
+        density_threshold=0.7,  # filter low-density regions
+    ):
+        """
+        Create a heatmap of arrow density by rendering the vector field
+        and processing it as an image.
+
+        Physical insight:
+        -
+        """
+
+        # Temporary figure for quiver
+        fig, ax = plt.subplots(figsize=(6, 6), facecolor="white")
+        ax.set_facecolor("white")
+        ax.axis("off")
+
+        tmp_vis = SchwanenseeVisualizer(ax=ax)
+        tmp_vis.plot_vector_field(pinn_model, x_range=x_range, y_range=y_range)
+        plt.axis("off")
+
+        # Save to temp file
+        tmpfile = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        tmp_path = tmpfile.name
+        plt.savefig(
+            tmp_path, dpi=300, bbox_inches="tight", pad_inches=0, transparent=False
+        )
+        plt.close(fig)
+
+        # Read image
+        img = cv2.imread(tmp_path, cv2.IMREAD_GRAYSCALE)
+
+        # Invert if background is white
+        if np.mean(img) > 127:
+            img = cv2.bitwise_not(img)
+
+        # Flip vertically to match coordinate orientation
+        img = cv2.flip(img, 0)
+
+        # Blur to spread intensity
+        blurred = cv2.GaussianBlur(img, (blur_radius, blur_radius), 0)
+
+        # Normalize to 0–1
+        density_map = blurred.astype(np.float32) / 255.0
+
+        # Filter out low-density regions
+        density_map[density_map < density_threshold] = 0.0
+
+        # Plot on current axis
+        self.ax.imshow(
+            density_map,
+            extent=[x_range[0], x_range[1], y_range[0], y_range[1]],
+            origin="lower",
+            cmap=cmap,
+            alpha=0.8,
+            norm=Normalize(vmin=0, vmax=1),
+            aspect="auto",  # prevents forced square image
+        )
+
+        # Clean up temporary file
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
 
     def visualize(
         self,
@@ -514,64 +561,51 @@ class SchwanenseeVisualizer:
         y_pred,
         x_true,
         y_true,
-        vector_field_type="none",  # Options: "arrows", "lic", "streamlines"
+        vector_field_type="none",  # Options: "arrows", "lic"
         pinn_model=None,
         vector_field_t=0.0,
-        # Arrow vector field options
-        arrow_grid_size=12,
-        arrow_skip=None,
-        arrow_scale=8,
-        arrow_width=0.003,
-        arrow_color="darkblue",
-        arrow_alpha=0.7,
         # LIC options
         lic_resolution=200,
         lic_cmap="gray",
-        lic_alpha=0.8,
         lic_color_by_phase=False,
         lic_phase_method="cluster",  # "rule" or "cluster"
-        # Streamline options
-        stream_density=1.0,
-        stream_linewidth=1.0,
-        stream_color="darkblue",
-        stream_arrowsize=1.2,
         x_range=(-3, 4),
         y_range=(-1, 7),
+        show_trajectories=True,
     ):
+        """
+        Comprehensive visualization method combining vector field and trajectories.
+        """
         t_10s_idx = np.argmin(np.abs(t_values - 10.0))
 
         # Add vector field visualization if requested and if we have a PINN model
         if pinn_model is not None:
-            if vector_field_type.lower() == "lic":
+            if vector_field_type.lower() == "density":
                 # Use Line Integral Convolution
-                self.plot_lic(
-                    pinn_model,
-                    t=vector_field_t,
-                    x_range=x_range,
-                    y_range=y_range,
-                    resolution=lic_resolution,
-                    cmap=lic_cmap,
-                    alpha=lic_alpha,
-                    color_by_phase=lic_color_by_phase,
-                    phase_method=lic_phase_method,
+                self.plot_arrow_density_imaging(
+                    pinn_model, x_range=x_range, y_range=y_range, cmap=lic_cmap
                 )
             elif vector_field_type.lower() == "arrows":
                 # Use arrow-based vector field
-                self.plot_vector_field(pinn_model, x0=2.0, y0=1.5, t_max=15)
-            elif vector_field_type.lower() == "streamlines":
-                # Use streamline visualization
-                self.plot_streamlines(
+                self.plot_vector_field(pinn_model, x_range=x_range, y_range=y_range)
+            elif vector_field_type.lower() == "lic":
+                # Use arrow-based vector field
+                self.plot_lic(
                     pinn_model,
-                    t=vector_field_t,
                     x_range=x_range,
                     y_range=y_range,
-                    density=stream_density,
-                    linewidth=stream_linewidth,
-                    color=stream_color,
-                    arrowsize=stream_arrowsize,
+                    color_by_phase=lic_color_by_phase,
+                    phase_method=lic_phase_method,
                 )
 
-        # Plot trajectories
-        self.plot_trajectories(x_pred, y_pred, x_true, y_true, t_10s_idx)
+        # Plot trajectories if requested
+        if show_trajectories:
+            self.plot_trajectories(x_pred, y_pred, x_true, y_true, t_10s_idx)
+
+        # Set labels and title
+        self.ax.set_xlabel("x")
+        self.ax.set_ylabel("y")
+        self.ax.set_xlim(x_range)
+        self.ax.set_ylim(y_range)
 
         return self.ax

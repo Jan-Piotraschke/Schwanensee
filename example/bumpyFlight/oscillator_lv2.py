@@ -426,85 +426,62 @@ y_center = (
 r_pred = np.sqrt(x_learned**2 + (y_learned - y_center) ** 2)
 r_true = np.sqrt(x_true**2 + (y_true - y_center) ** 2)
 
-# Create the phase space visualization with vector fields
+# Create a figure for PDF output
 fig = plt.figure(figsize=(18, 12))
+
+# Phase Space with LIC visualization
 ax1 = fig.add_subplot(221)
 phase_visualizer = schwanensee.SchwanenseeVisualizer(ax=ax1)
-
-# LIC visualization with phase coloring using clustering
 phase_visualizer.visualize(
     t_values,
     x_learned,
     y_learned,
     x_true,
     y_true,
-    vector_field_type="lic",
+    vector_field_type="density",
     pinn_model=model,
-    vector_field_t=0,
-    lic_resolution=200,
-    lic_cmap="gray",
-    lic_alpha=0.7,
-    lic_color_by_phase=True,
-    lic_phase_method="cluster",
+    lic_cmap="Greys_r",
+    show_trajectories=False,
 )
-
-# LIC visualization with phase coloring using rule-based approach
-ax2 = fig.add_subplot(222)
-phase_visualizer2 = schwanensee.SchwanenseeVisualizer(ax=ax2)
-phase_visualizer2.visualize(
-    t_values,
-    x_learned,
-    y_learned,
-    x_true,
-    y_true,
-    vector_field_type="arrows",
-    pinn_model=model,
-    vector_field_t=0,
-    lic_resolution=200,
-    lic_cmap="gray",
-    lic_alpha=0.7,
-    lic_color_by_phase=True,
-    lic_phase_method="rule",
-    arrow_grid_size=20
-)
-
-# Streamlines visualization
-ax4 = fig.add_subplot(223)
-phase_visualizer4 = schwanensee.SchwanenseeVisualizer(ax=ax4)
-phase_visualizer4.visualize(
-    t_values,
-    x_learned,
-    y_learned,
-    x_true,
-    y_true,
-    vector_field_type="streamlines",
-    pinn_model=model,
-    vector_field_t=0,
-    stream_density=1.5,
-    stream_linewidth=1.2,
-    stream_color="darkblue",
-    stream_arrowsize=1.5,
-    x_range=(-3, 4),
-    y_range=(-1, 7),
-)
-
-ax1.set_title("Phase Space")
-ax1.set_xlabel("x")
-ax1.set_ylabel("y")
+ax1.set_title("Phase Space with LIC Visualization")
 ax1.grid(False)
 ax1.legend()
+params = phase_visualizer.highlight_circular_flow_from_density(
+    model, x_range=(-3, 4), y_range=(-1, 7)
+)
+print(params)
+
+# # Phase Space with Arrows visualization
+# ax2 = fig.add_subplot(222)
+# phase_visualizer2 = schwanensee.SchwanenseeVisualizer(ax=ax2)
+# phase_visualizer2.visualize(
+#     t_values,
+#     x_learned,
+#     y_learned,
+#     x_true,
+#     y_true,
+#     vector_field_type="arrows",
+#     pinn_model=model,
+#     show_trajectories=True
+# )
+# ax2.set_title("Phase Space with Vector Field Arrows")
+# ax2.grid(False)
+# ax2.legend()
 
 # Time series for y
-ax2 = fig.add_subplot(224)
-ax2.plot(t_values, y_learned, "g--", label="y (learned, integrated)")
-ax2.plot(t_values, y_true, "g-", alpha=0.7, label="y (True)")
-ax2.set_title("y-Coordinate vs Time")
-ax2.set_xlabel("Time")
-ax2.set_ylabel("y")
-ax2.grid(True)
-ax2.legend()
+ax3 = fig.add_subplot(224)
+ax3.plot(t_values, y_learned, "g--", label="y (learned, integrated)")
+ax3.plot(t_values, y_true, "g-", alpha=0.7, label="y (True)")
+ax3.set_title("y-Coordinate vs Time")
+ax3.set_xlabel("Time")
+ax3.set_ylabel("y")
+ax3.grid(True)
+ax3.legend()
 
 plt.tight_layout()
+
+# For PDF output
+plt.savefig("schwanensee_visualization.pdf", format="pdf", bbox_inches="tight")
 plt.show()
 
 # Save the model
