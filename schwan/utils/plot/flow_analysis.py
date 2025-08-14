@@ -304,7 +304,7 @@ class FlowAnalyzer:
                 [], [], color=colors["outflow"], linewidth=2, label="Outflow Region"
             ),
             mlines.Line2D(
-                [], [], color=colors["inflow"], linewidth=2, label="Stable Region"
+                [], [], color=colors["inflow"], linewidth=2, label="Inflow Region"
             ),
             mlines.Line2D(
                 [], [], color=colors["stable"], linewidth=2, label="Stable Region"
