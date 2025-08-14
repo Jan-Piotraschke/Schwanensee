@@ -10,6 +10,7 @@ from matplotlib.colors import Normalize
 import scipy.integrate
 
 from .phase import PhaseIdentifier
+from .flow_analysis import FlowAnalyzer, EllipseData
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,9 @@ class SchwanenseeVisualizer:
         }
         self.phases_by_priority = ["rise", "descent", "stable"]
         self.phase_identifier = PhaseIdentifier()
+
+        # Create the flow analyzer
+        self.flow_analyzer = FlowAnalyzer()
 
         # Vector-field caches
         self._vf_cache = {}  # key: _VFParams -> dict(data)
@@ -392,7 +396,7 @@ class SchwanenseeVisualizer:
             aspect="auto",
         )
 
-    def highlight_circular_flow_from_density(
+    def highlight_circular_flow(
         self,
         pinn_model,
         x_range=(-3, 4),
@@ -401,302 +405,75 @@ class SchwanenseeVisualizer:
         white_threshold=0.98,
         morph_kernel_size=3,
         min_area=30,
-        color="orange",
-        outflow_color="red",
-        inflow_color="blue",
-        draw_orthogonal_vectors=False,
-        n_vectors=12,
-        vector_length=0.3,
-        t_max=15.0,
-        num_points=500,
-        num_points_x=10,
-        num_points_y=10,
-        n_segments=150,
-        dist_tol=0.5,
-        max_angle_deviation=5.0,  # Max deviation in degrees
         loop_scale_factor=1.1,
+        n_segments=150,
+        max_angle_deviation=5.0,
+        dist_tol=0.5,
+        draw_normals=False,
+        vector_length=0.3,
     ):
-        """Detect the bright-white elliptical loop from the arrow density map, plot it,
-        and color segments red for outflow, blue for inflow, or default color for stable regions.
         """
-        # Convert max angle deviation to dot product threshold
-        # cos(5°) ≈ 0.9962
-        min_flow_dot = np.cos(np.radians(max_angle_deviation))
-
-        # Ensure we have cached data
+        Detect circular flow patterns and highlight inflow/outflow regions.
+        """
+        # Ensure vector field data
         key = self._ensure_vf(
             pinn_model,
             x_range=x_range,
             y_range=y_range,
-            t_max=t_max,
-            num_points=num_points,
-            num_points_x=num_points_x,
-            num_points_y=num_points_y,
+            t_max=15.0,
+            num_points=500,
+            num_points_x=10,
+            num_points_y=10,
         )
 
-        # Get vector field data directly
-        data = self._vf_cache.get(key)
-        if data is None:
-            print("No vector field data in cache.")
-            return None
+        vector_field_data = self._vf_cache[key]
 
-        X, Y, VX, VY = data["X"], data["Y"], data["VX"], data["VY"]
-
-        if len(X) == 0:
-            print("Vector field data is empty.")
-            return None
-
-        print(f"Vector field contains {len(X)} points")
-        print(
-            f"Using min dot product of {min_flow_dot:.6f} (corresponds to {max_angle_deviation}° max deviation)"
-        )
-        print(f"Loop scale factor: {loop_scale_factor:.2f}")
-
-        # Render temp vector field image for contour detection
-        fig_tmp, ax_tmp = plt.subplots(figsize=(6, 6), facecolor="white")
-        ax_tmp.axis("off")
-        tmp_vis = SchwanenseeVisualizer(ax=ax_tmp)
-        tmp_vis.plot_vector_field(
-            pinn_model,
+        # Step 1: Detect the oscillation
+        ellipse = self.flow_analyzer.detect_oscillation(
+            vector_field_data,
             x_range=x_range,
             y_range=y_range,
-            t_max=t_max,
-            num_points=num_points,
-            num_points_x=num_points_x,
-            num_points_y=num_points_y,
+            blur_radius=blur_radius,
+            white_threshold=white_threshold,
+            morph_kernel_size=morph_kernel_size,
+            min_area=min_area,
+            loop_scale_factor=loop_scale_factor,
         )
-        plt.axis("off")
-        tmpfile = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-        tmp_path = tmpfile.name
-        plt.savefig(
-            tmp_path, dpi=300, bbox_inches="tight", pad_inches=0, transparent=False
+
+        if ellipse is None:
+            return None
+
+        # Step 2: Calculate ellipse segments
+        ellipse = self.flow_analyzer.calculate_ellipse_segments(
+            ellipse, n_segments=n_segments
         )
-        plt.close(fig_tmp)
 
-        # Load grayscale image
-        img = cv2.imread(tmp_path, cv2.IMREAD_GRAYSCALE)
-        try:
-            os.unlink(tmp_path)
-        except:
-            pass
-        if np.mean(img) > 127:
-            img = cv2.bitwise_not(img)
+        # Step 3: Analyze flow at each segment
+        flow_segments = self.flow_analyzer.analyze_flow_segments(
+            ellipse,
+            vector_field_data,
+            max_angle_deviation=max_angle_deviation,
+            dist_tol=dist_tol,
+        )
 
-        # Blur and threshold
-        blurred = cv2.GaussianBlur(img, (blur_radius, blur_radius), 0)
-        norm_img = blurred.astype(np.float32) / 255.0
-        max_val = norm_img.max()
-        mask = (norm_img >= white_threshold * max_val).astype(np.uint8) * 255
-        kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        # Step 4: Draw the flow analysis
+        legend_handles = self.flow_analyzer.draw_flow_analysis(
+            self.ax,
+            ellipse,
+            flow_segments,
+            draw_normals=draw_normals,
+            vector_length=vector_length,
+        )
 
-        # Find contours
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            print("No bright-white loop found.")
-            return None
+        self.ax.legend(handles=legend_handles)
 
-        largest_contour = max(contours, key=cv2.contourArea)
-        if cv2.contourArea(largest_contour) < min_area:
-            print("White region too small.")
-            return None
-
-        # Fit ellipse to the contour
-        if len(largest_contour) >= 5:
-            ellipse = cv2.fitEllipse(largest_contour)
-            (cx, cy), (width, height), angle = ellipse
-
-            # Convert to data coordinates
-            img_h, img_w = norm_img.shape
-            cx_data = x_range[0] + (cx / img_w) * (x_range[1] - x_range[0])
-            cy_data = y_range[0] + ((img_h - cy) / img_h) * (y_range[1] - y_range[0])
-            width_data = (width / img_w) * (x_range[1] - x_range[0])
-            height_data = (height / img_h) * (y_range[1] - y_range[0])
-
-            # Apply the scaling factor to the ellipse dimensions
-            width_data *= loop_scale_factor
-            height_data *= loop_scale_factor
-
-            a = width_data / 2
-            b = height_data / 2
-            rot_rad = np.deg2rad(-angle)
-
-            print(
-                f"Ellipse center: ({cx_data:.2f}, {cy_data:.2f}), size: {width_data:.2f}x{height_data:.2f} (after scaling)"
-            )
-
-            # Calculate orthogonal vectors first (these are the reference vectors)
-            orthogonal_vectors = []
-            theta_ortho = np.linspace(0, 2 * np.pi, n_vectors, endpoint=False)
-
-            for t in theta_ortho:
-                x_ell = a * np.cos(t)
-                y_ell = b * np.sin(t)
-                x_rot = cx_data + x_ell * np.cos(rot_rad) - y_ell * np.sin(rot_rad)
-                y_rot = cy_data + x_ell * np.sin(rot_rad) + y_ell * np.cos(rot_rad)
-
-                # Calculate outward normal vector
-                nx_local = 2 * np.cos(t) / (a**2)
-                ny_local = 2 * np.sin(t) / (b**2)
-
-                # Normalize
-                norm_len = np.sqrt(nx_local**2 + ny_local**2)
-                nx_local /= norm_len
-                ny_local /= norm_len
-
-                # Rotate to align with ellipse orientation
-                nx = nx_local * np.cos(rot_rad) - ny_local * np.sin(rot_rad)
-                ny = nx_local * np.sin(rot_rad) + ny_local * np.cos(rot_rad)
-
-                orthogonal_vectors.append((x_rot, y_rot, nx, ny))
-
-            # Draw ellipse segments
-            theta_vals = np.linspace(0, 2 * np.pi, n_segments, endpoint=False)
-            segment_points = []
-
-            # First calculate all segment points and their normals
-            for i, t in enumerate(theta_vals):
-                x_ell = a * np.cos(t)
-                y_ell = b * np.sin(t)
-                x_rot = cx_data + x_ell * np.cos(rot_rad) - y_ell * np.sin(rot_rad)
-                y_rot = cy_data + x_ell * np.sin(rot_rad) + y_ell * np.cos(rot_rad)
-
-                # Calculate normal vector at this segment point
-                nx_local = 2 * np.cos(t) / (a**2)
-                ny_local = 2 * np.sin(t) / (b**2)
-
-                # Normalize
-                norm_len = np.sqrt(nx_local**2 + ny_local**2)
-                nx_local /= norm_len
-                ny_local /= norm_len
-
-                # Rotate to align with ellipse orientation
-                nx = nx_local * np.cos(rot_rad) - ny_local * np.sin(rot_rad)
-                ny = nx_local * np.sin(rot_rad) + ny_local * np.cos(rot_rad)
-
-                segment_points.append((x_rot, y_rot, nx, ny))
-
-            # Now check each vector field point against the orthogonal vectors
-            outflow_segments = set()
-            inflow_segments = set()
-
-            for i in range(len(X)):
-                x_vec, y_vec = X[i], Y[i]
-                vx, vy = VX[i], VY[i]
-
-                # Find the closest orthogonal vector
-                closest_ortho_idx = -1
-                min_dist_ortho = float("inf")
-
-                for j, (x_ortho, y_ortho, nx_ortho, ny_ortho) in enumerate(
-                    orthogonal_vectors
-                ):
-                    dist = np.sqrt((x_vec - x_ortho) ** 2 + (y_vec - y_ortho) ** 2)
-                    if dist < dist_tol and dist < min_dist_ortho:
-                        min_dist_ortho = dist
-                        closest_ortho_idx = j
-
-                # If we found a close orthogonal vector
-                if closest_ortho_idx >= 0:
-                    _, _, nx_ortho, ny_ortho = orthogonal_vectors[closest_ortho_idx]
-
-                    # Check alignment with orthogonal vector (outflow)
-                    dot_outflow = vx * nx_ortho + vy * ny_ortho
-
-                    # Check alignment with opposite of orthogonal vector (inflow)
-                    dot_inflow = vx * (-nx_ortho) + vy * (-ny_ortho)
-
-                    # Find the closest segment to mark
-                    closest_seg_idx = -1
-                    min_dist_seg = float("inf")
-
-                    for j, (x_seg, y_seg, _, _) in enumerate(segment_points):
-                        dist = np.sqrt((x_vec - x_seg) ** 2 + (y_vec - y_seg) ** 2)
-                        if dist < dist_tol and dist < min_dist_seg:
-                            min_dist_seg = dist
-                            closest_seg_idx = j
-
-                    if closest_seg_idx >= 0:
-                        if dot_outflow > min_flow_dot:
-                            outflow_segments.add(closest_seg_idx)
-                            if len(outflow_segments) <= 3:  # Debug first few
-                                angle_deg = np.degrees(np.arccos(dot_outflow))
-                                print(
-                                    f"Outflow at segment {closest_seg_idx}, angle deviation: {angle_deg:.2f}°"
-                                )
-                        elif dot_inflow > min_flow_dot:
-                            inflow_segments.add(closest_seg_idx)
-                            if len(inflow_segments) <= 3:  # Debug first few
-                                angle_deg = np.degrees(np.arccos(dot_inflow))
-                                print(
-                                    f"Inflow at segment {closest_seg_idx}, angle deviation: {angle_deg:.2f}°"
-                                )
-
-            # Now draw the segments
-            outflow_count = 0
-            inflow_count = 0
-
-            for i, t in enumerate(theta_vals):
-                # Get segment endpoints
-                t_next = t + 2 * np.pi / n_segments
-                x1, y1, _, _ = segment_points[i]
-
-                # Calculate the next point
-                x_ell2 = a * np.cos(t_next)
-                y_ell2 = b * np.sin(t_next)
-                x2 = cx_data + x_ell2 * np.cos(rot_rad) - y_ell2 * np.sin(rot_rad)
-                y2 = cy_data + x_ell2 * np.sin(rot_rad) + y_ell2 * np.cos(rot_rad)
-
-                # Determine segment color
-                seg_color = color  # Default stable color
-                if i in outflow_segments:
-                    seg_color = outflow_color
-                    outflow_count += 1
-                elif i in inflow_segments:
-                    seg_color = inflow_color
-                    inflow_count += 1
-
-                self.ax.plot([x1, x2], [y1, y2], color=seg_color, linewidth=4)
-
-            print(
-                f"Detected {outflow_count} outflow segments and {inflow_count} inflow segments out of {n_segments} total segments."
-            )
-
-            # Draw orthogonal vectors if requested
-            if draw_orthogonal_vectors:
-                for x_ortho, y_ortho, nx_ortho, ny_ortho in orthogonal_vectors:
-                    self.ax.arrow(
-                        x_ortho,
-                        y_ortho,
-                        nx_ortho * vector_length,
-                        ny_ortho * vector_length,
-                        head_width=0.05,
-                        head_length=0.08,
-                        fc=color,
-                        ec=color,
-                    )
-
-            # Add legend
-            outflow_line = mlines.Line2D(
-                [], [], color=outflow_color, linewidth=2, label="Outflow Region"
-            )
-            inflow_line = mlines.Line2D(
-                [], [], color=inflow_color, linewidth=2, label="Inflow Region"
-            )
-            normal_line = mlines.Line2D(
-                [], [], color=color, linewidth=2, label="Stable Region"
-            )
-            self.ax.legend(handles=[outflow_line, inflow_line, normal_line])
-
-            return {
-                "center": (cx_data, cy_data),
-                "width": width_data,
-                "height": height_data,
-                "angle": -angle,
-            }
-        else:
-            print("Not enough points to fit ellipse.")
-            return None
+        return {
+            "center": ellipse.center,
+            "width": ellipse.width,
+            "height": ellipse.height,
+            "angle": ellipse.angle,
+            "flow_segments": flow_segments,
+        }
 
     def visualize(
         self,

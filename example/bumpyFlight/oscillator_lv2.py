@@ -446,11 +446,10 @@ phase_visualizer.visualize(
 ax1.set_title("Phase Space with LIC Visualization")
 ax1.grid(False)
 ax1.legend()
-params = phase_visualizer.highlight_circular_flow_from_density(
+params = phase_visualizer.highlight_circular_flow(
     model,
     x_range=(-3, 4),
     y_range=(-1, 7),
-    n_vectors=16,
     vector_length=0.4,
     dist_tol=0.5,  # Search radius
     max_angle_deviation=15,  # Maximum deviation in degrees
