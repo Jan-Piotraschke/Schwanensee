@@ -447,26 +447,31 @@ ax1.set_title("Phase Space with LIC Visualization")
 ax1.grid(False)
 ax1.legend()
 params = phase_visualizer.highlight_circular_flow_from_density(
-    model, x_range=(-3, 4), y_range=(-1, 7)
+    model,
+    x_range=(-3, 4),
+    y_range=(-1, 7),
+    n_vectors=16,
+    vector_length=0.4,
+    dist_tol=0.5,  # Search radius
+    max_angle_deviation=15,  # Maximum deviation in degrees
 )
-print(params)
 
-# # Phase Space with Arrows visualization
-# ax2 = fig.add_subplot(222)
-# phase_visualizer2 = schwanensee.SchwanenseeVisualizer(ax=ax2)
-# phase_visualizer2.visualize(
-#     t_values,
-#     x_learned,
-#     y_learned,
-#     x_true,
-#     y_true,
-#     vector_field_type="arrows",
-#     pinn_model=model,
-#     show_trajectories=True
-# )
-# ax2.set_title("Phase Space with Vector Field Arrows")
-# ax2.grid(False)
-# ax2.legend()
+# Phase Space with Arrows visualization
+ax2 = fig.add_subplot(222)
+phase_visualizer2 = schwanensee.SchwanenseeVisualizer(ax=ax2)
+phase_visualizer2.visualize(
+    t_values,
+    x_learned,
+    y_learned,
+    x_true,
+    y_true,
+    vector_field_type="arrows",
+    pinn_model=model,
+    show_trajectories=True,
+)
+ax2.set_title("Phase Space with Vector Field Arrows")
+ax2.grid(False)
+ax2.legend()
 
 # Time series for y
 ax3 = fig.add_subplot(224)
