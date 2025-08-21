@@ -71,7 +71,7 @@ The *Schwanensee* framework helps you with some standard conversions.
 #### TensorFlow to ONNX
 
 ```bash
-python -m tf2onnx.convert --saved-model generalized_patient --output model.onnx
+python -m tf2onnx.convert --saved-model damped_oscillator_simulator --output model.onnx
 ```
 
 #### ONNX to PyTorch
@@ -135,13 +135,27 @@ DDE_BACKEND=tensorflow python example/bumpyFlight/oscillator_lv2.py
 One last gimmick for you.<br/>
 As I am an engineer for applications in medical technology and C++ is currently the standard programming language there, I want to provide an example of how you can use your PINN directly within C++.
 
-For this, just run
+For this, run
 ```bash
-make
+cd vcpkg
+./bootstrap-vcpkg.sh
+./vcpkg install opencv4:arm64-osx s
+
+ cmake -B build -S . \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_OSX_ARCHITECTURES=$(uname -m) \
+    -DCMAKE_TOOLCHAIN_FILE=$(pwd)/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+cmake --build build
+```
+This creates a build of the main.cpp file.<br/>
+
+Launch it from project root:
+```bash
+./build/schwan
 ```
 
-This creates a build of the main.cpp file.<br/>
-With this build, you can run your Lorenz PINN model from above in C++. <br/>
+With this, you can run your PINN model from above in C++. <br/>
 For this to work, you just have to convert the TensorFlow-based model into a PyTorch model using the steps above.
 
 
