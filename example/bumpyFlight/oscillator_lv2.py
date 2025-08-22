@@ -496,7 +496,7 @@ fig = plt.figure(figsize=(18, 12))
 
 # Phase Space with LIC visualization
 ax1 = fig.add_subplot(221)
-phase_visualizer = schwanensee.SchwanenseeVisualizer(ax=ax1)
+phase_visualizer = schwanensee.SchwanenseeVisualizer(ax=ax1, onnx_model="model.onnx")
 phase_visualizer.visualize(
     t_values,
     x_learned,
@@ -504,7 +504,6 @@ phase_visualizer.visualize(
     x_true,
     y_true,
     vector_field_type="density",
-    pinn_model=model,
     lic_cmap="Greys_r",
     show_trajectories=False,
 )
@@ -512,7 +511,6 @@ ax1.set_title("Phase Space with LIC Visualization")
 ax1.grid(False)
 ax1.legend()
 params = phase_visualizer.highlight_circular_flow(
-    model,
     x_range=(-3, 4),
     y_range=(-1, 7),
     vector_length=0.4,
@@ -522,7 +520,7 @@ params = phase_visualizer.highlight_circular_flow(
 
 # Phase Space with Arrows visualization
 ax2 = fig.add_subplot(222)
-phase_visualizer2 = schwanensee.SchwanenseeVisualizer(ax=ax2)
+phase_visualizer2 = schwanensee.SchwanenseeVisualizer(ax=ax2, onnx_model="model.onnx")
 phase_visualizer2.visualize(
     t_values,
     x_learned,
@@ -530,7 +528,6 @@ phase_visualizer2.visualize(
     x_true,
     y_true,
     vector_field_type="arrows",
-    pinn_model=model,
     show_trajectories=True,
 )
 ax2.set_title("Phase Space with Vector Field Arrows")

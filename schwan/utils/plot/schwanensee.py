@@ -5,12 +5,12 @@ import tempfile
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.lines as mlines
 from matplotlib.colors import Normalize
 import scipy.integrate
+import onnxruntime as ort
 
 from .phase import PhaseIdentifier
-from .flow_analysis import FlowAnalyzer, EllipseData
+from .flow_analysis import FlowAnalyzer
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class _VFParams:
 
 
 class SchwanenseeVisualizer:
-    def __init__(self, ax=None):
+    def __init__(self, ax=None, onnx_model=None):
         if ax is None:
             self.fig, self.ax = plt.subplots(figsize=(8, 6))
         else:
@@ -41,16 +41,38 @@ class SchwanenseeVisualizer:
         self.phases_by_priority = ["rise", "descent", "stable"]
         self.phase_identifier = PhaseIdentifier()
 
-        # Create the flow analyzer
         self.flow_analyzer = FlowAnalyzer()
 
         # Vector-field caches
-        self._vf_cache = {}  # key: _VFParams -> dict(data)
-        self._density_cache = {}  # key: (_VFParams, res_x, res_y, blur_radius, density_threshold) -> density_map
+        self._vf_cache = {}
+        self._density_cache = {}
+        self.onnx_model = onnx_model
+
+        # Initialize ONNX session
+        if onnx_model is None:
+            raise ValueError("Please provide a path to an ONNX model")
+        self.onnx_session = ort.InferenceSession(
+            onnx_model,
+            providers=["CPUExecutionProvider"],
+        )
+        self.onnx_input_name = self.onnx_session.get_inputs()[0].name
+        self.onnx_output_names = [o.name for o in self.onnx_session.get_outputs()]
+
+    def _predict(self, inputs: np.ndarray) -> np.ndarray:
+        """
+        Run ONNX model inference.
+        Assumes input shape: (N, 3) with columns [t, x, y]
+        and output with at least 4 columns where [:,2] = dx/dt, [:,3] = dy/dt.
+        """
+        outputs = self.onnx_session.run(
+            self.onnx_output_names, {self.onnx_input_name: inputs}
+        )
+        # take first output if multiple
+        pred = outputs[0]
+        return pred
 
     def prepare_vector_field(
         self,
-        pinn_model,
         x_range=(-2, 4),
         y_range=(0, 2),
         t_max=15.0,
@@ -58,14 +80,8 @@ class SchwanenseeVisualizer:
         num_points_x=10,
         num_points_y=10,
     ):
-        """
-        Integrate the learned ODE from a seed grid ONCE and cache:
-          - concatenated positions X, Y, times T
-          - normalized velocities VX, VY
-          - seed grid and params for reuse by other functions
-        """
         key = _VFParams(
-            id(pinn_model),
+            id(self.onnx_session),
             x_range[0],
             x_range[1],
             y_range[0],
@@ -76,12 +92,11 @@ class SchwanenseeVisualizer:
             num_points,
         )
         if key in self._vf_cache:
-            return key  # already prepared
+            return key
 
         x_min, x_max = x_range
         y_min, y_max = y_range
 
-        # seed points
         x_vals = np.linspace(0, 3, num_points_x)
         y_vals = np.linspace(0, 2, num_points_y)
         start_points = [(xx, yy) for xx in x_vals for yy in y_vals]
@@ -95,8 +110,7 @@ class SchwanenseeVisualizer:
         def learned_rhs_func(t, state):
             x_val, y_val = float(state[0]), float(state[1])
             inp = np.array([[t, x_val, y_val]], dtype=np.float32)
-            pred = pinn_model.predict(inp)
-            # pred columns assumed: [?, ?, dx, dy] as in your original code
+            pred = self._predict(inp)
             return [float(pred[0, 2]), float(pred[0, 3])]
 
         t_eval = np.linspace(0, t_max, num_points)
@@ -113,7 +127,6 @@ class SchwanenseeVisualizer:
             x_traj = sol.y[0]
             y_traj = sol.y[1]
 
-            # mask to plotting window
             mask = (
                 (x_traj >= x_min)
                 & (x_traj <= x_max)
@@ -127,9 +140,8 @@ class SchwanenseeVisualizer:
             y_traj = y_traj[mask]
             t_masked = t_eval[mask]
 
-            # velocities at those points
             inputs = np.column_stack([t_masked, x_traj, y_traj]).astype(np.float32)
-            preds = pinn_model.predict(inputs)
+            preds = self._predict(inputs)
             dx_dt = preds[:, 2]
             dy_dt = preds[:, 3]
             mag = np.sqrt(dx_dt**2 + dy_dt**2)
@@ -144,8 +156,7 @@ class SchwanenseeVisualizer:
             all_VY.append(dy_dt)
 
         if len(all_X) == 0:
-            # No trajectories intersect the window; cache an empty set to avoid recomputation
-            data = dict(
+            self._vf_cache[key] = dict(
                 X=np.array([]),
                 Y=np.array([]),
                 T=np.array([]),
@@ -157,16 +168,12 @@ class SchwanenseeVisualizer:
                 num_points=num_points,
                 seeds=(num_points_x, num_points_y),
             )
-            self._vf_cache[key] = data
             return key
 
-        X = np.concatenate(all_X)
-        Y = np.concatenate(all_Y)
-        T = np.concatenate(all_T)
-        VX = np.concatenate(all_VX)
-        VY = np.concatenate(all_VY)
+        X, Y, T = np.concatenate(all_X), np.concatenate(all_Y), np.concatenate(all_T)
+        VX, VY = np.concatenate(all_VX), np.concatenate(all_VY)
 
-        data = dict(
+        self._vf_cache[key] = dict(
             X=X,
             Y=Y,
             T=T,
@@ -178,12 +185,10 @@ class SchwanenseeVisualizer:
             num_points=num_points,
             seeds=(num_points_x, num_points_y),
         )
-        self._vf_cache[key] = data
         return key
 
-    def _ensure_vf(self, pinn_model, **kwargs):
-        """Ensure vector-field data exist; returns the cache key."""
-        return self.prepare_vector_field(pinn_model, **kwargs)
+    def _ensure_vf(self, **kwargs):
+        return self.prepare_vector_field(**kwargs)
 
     def plot_trajectories(self, x_pred, y_pred, x_true, y_true, t_10s_idx):
         """
@@ -219,7 +224,6 @@ class SchwanenseeVisualizer:
 
     def plot_vector_field(
         self,
-        pinn_model,
         x_range=(-2, 4),
         y_range=(0, 2),
         t_max=15.0,
@@ -239,7 +243,6 @@ class SchwanenseeVisualizer:
         - spotting critical points as they appear with very short arrows
         """
         key = self._ensure_vf(
-            pinn_model,
             x_range=x_range,
             y_range=y_range,
             t_max=t_max,
@@ -314,7 +317,6 @@ class SchwanenseeVisualizer:
 
     def plot_arrow_density_imaging(
         self,
-        pinn_model,
         x_range=(-3, 4),
         y_range=(-1, 7),
         blur_radius=1,
@@ -334,7 +336,6 @@ class SchwanenseeVisualizer:
         """
         # Ensure we have cached vector field
         self._ensure_vf(
-            pinn_model,
             x_range=x_range,
             y_range=y_range,
             t_max=t_max,
@@ -347,9 +348,8 @@ class SchwanenseeVisualizer:
         fig, ax = plt.subplots(figsize=(6, 6), facecolor="white")
         ax.set_facecolor("white")
         ax.axis("off")
-        tmp_vis = SchwanenseeVisualizer(ax=ax)
+        tmp_vis = SchwanenseeVisualizer(ax=ax, onnx_model=self.onnx_model)
         tmp_vis.plot_vector_field(
-            pinn_model,
             x_range=x_range,
             y_range=y_range,
             t_max=t_max,
@@ -398,7 +398,6 @@ class SchwanenseeVisualizer:
 
     def highlight_circular_flow(
         self,
-        pinn_model,
         x_range=(-3, 4),
         y_range=(-1, 7),
         blur_radius=5,
@@ -417,7 +416,6 @@ class SchwanenseeVisualizer:
         """
         # Ensure vector field data
         key = self._ensure_vf(
-            pinn_model,
             x_range=x_range,
             y_range=y_range,
             t_max=15.0,
@@ -483,7 +481,6 @@ class SchwanenseeVisualizer:
         x_true,
         y_true,
         vector_field_type="none",
-        pinn_model=None,
         lic_cmap="gray",
         x_range=(-3, 4),
         y_range=(-1, 7),
@@ -493,13 +490,9 @@ class SchwanenseeVisualizer:
         num_points_x=10,
         num_points_y=10,
     ):
-        # ensure vector field data if needed
-        if pinn_model is not None and vector_field_type.lower() in {
-            "density",
-            "arrows",
-        }:
+        # Ensure vector field data if needed
+        if vector_field_type.lower() in {"density", "arrows"}:
             self._ensure_vf(
-                pinn_model,
                 x_range=x_range,
                 y_range=y_range,
                 t_max=t_max,
@@ -508,28 +501,25 @@ class SchwanenseeVisualizer:
                 num_points_y=num_points_y,
             )
 
-        if pinn_model is not None:
-            if vector_field_type.lower() == "density":
-                self.plot_arrow_density_imaging(
-                    pinn_model,
-                    x_range=x_range,
-                    y_range=y_range,
-                    cmap=lic_cmap,
-                    t_max=t_max,
-                    num_points=num_points,
-                    num_points_x=num_points_x,
-                    num_points_y=num_points_y,
-                )
-            elif vector_field_type.lower() == "arrows":
-                self.plot_vector_field(
-                    pinn_model,
-                    x_range=x_range,
-                    y_range=y_range,
-                    t_max=t_max,
-                    num_points=num_points,
-                    num_points_x=num_points_x,
-                    num_points_y=num_points_y,
-                )
+        if vector_field_type.lower() == "density":
+            self.plot_arrow_density_imaging(
+                x_range=x_range,
+                y_range=y_range,
+                cmap=lic_cmap,
+                t_max=t_max,
+                num_points=num_points,
+                num_points_x=num_points_x,
+                num_points_y=num_points_y,
+            )
+        elif vector_field_type.lower() == "arrows":
+            self.plot_vector_field(
+                x_range=x_range,
+                y_range=y_range,
+                t_max=t_max,
+                num_points=num_points,
+                num_points_x=num_points_x,
+                num_points_y=num_points_y,
+            )
 
         if show_trajectories:
             t_10s_idx = np.argmin(np.abs(t_values - 10.0))
