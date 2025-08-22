@@ -1,4 +1,8 @@
 import deepxde as dde
+import tf2onnx
+import tensorflow as tf
+import onnx
+import onnxruntime as ort
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -349,13 +353,30 @@ else:
         logger.info("No further learning. Using the current model state.")
 
 # Save the model
-model.save(export_path)
-model.net.save(f"{export_path}.keras")
+keras_path = f"{export_path}.keras"
+model.net.save(keras_path)
 model.net.export(export_path)
+
+# NOTE ---
+# variable batch size (-> thats why 'None'), but each sample has 3 features (t, x, y)
+# ---
+input_signature = [tf.TensorSpec([None, 3], tf.float32, name="inputs")]
+
+# ! only temp as there is an open issue with tensorflow compability
+# labels under which we can find the output
+model.net.output_names = ["output"]
+onnx_model, _ = tf2onnx.convert.from_keras(
+    model.net, input_signature=input_signature, opset=15, output_path=None
+)
+
+# Save to file
+onnx_path = "./model.onnx"
+onnx.save(onnx_model, onnx_path)
+logger.info(f"✅ ONNX model saved to {onnx_path}")
 
 # ==========================================
 # SECTION 4: RESULTS ANALYSIS
-# Calling C++ Code
+# Interfering ONNX model optional from C++
 #
 # This section analyzes the results,
 # visualizes the parameter convergence,
@@ -413,11 +434,46 @@ def visualize_trajectory_with_learned_rhs(
     return t_eval, x_learned, y_learned, x_true, y_true
 
 
+def learned_rhs_func_from_onnx(onnx_model_path):
+    sess = ort.InferenceSession(
+        onnx_model_path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+    )
+
+    # Read input/output names
+    input_name = sess.get_inputs()[0].name
+    output_name = sess.get_outputs()[0].name
+
+    def f(t, state):
+        x_val, y_val = float(state[0]), float(state[1])
+        inp = np.array([[t, x_val, y_val]], dtype=np.float32)
+        pred = sess.run([output_name], {input_name: inp})[0]
+        return [float(pred[0, 2]), float(pred[0, 3])]
+
+    return f
+
+
+def visualize_trajectory_with_onnx_rhs(
+    onnx_model_path, x0, y0, t_max=15.0, num_points=500
+):
+    f_learned = learned_rhs_func_from_onnx(onnx_model_path)
+    t_eval = np.linspace(0, t_max, num_points)
+    sol = scipy.integrate.solve_ivp(
+        f_learned, (0.0, t_max), [x0, y0], t_eval=t_eval, rtol=1e-6, atol=1e-8
+    )
+    x_learned = sol.y[0]
+    y_learned = sol.y[1]
+    return t_eval, x_learned, y_learned
+
+
 # Visualize the oscillator behavior using your Schwanensee visualizer
 x0, y0 = 1.0, 0.1  # Start near origin
 
 t_values, x_learned, y_learned, x_true, y_true = visualize_trajectory_with_learned_rhs(
     model, x0, y0
+)
+# ONNX trajectory
+t_values_onnx, x_learned_onnx, y_learned_onnx = visualize_trajectory_with_onnx_rhs(
+    "./model.onnx", x0, y0
 )
 
 # Compute radius about the planned center for plotting
@@ -483,8 +539,9 @@ ax2.legend()
 
 # Time series for y
 ax3 = fig.add_subplot(224)
-ax3.plot(t_values, y_learned, "g--", label="y (learned, integrated)")
+ax3.plot(t_values, y_learned, "g--", label="y (learned TF)")
 ax3.plot(t_values, y_true, "g-", alpha=0.7, label="y (True)")
+ax3.plot(t_values_onnx, y_learned_onnx, "r-.", label="y (learned ONNX)")
 ax3.set_title("y-Coordinate vs Time")
 ax3.set_xlabel("Time")
 ax3.set_ylabel("y")

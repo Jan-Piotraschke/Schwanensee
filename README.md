@@ -66,19 +66,7 @@ python schwan/schwan.py --python --input example/lorenz/generated/Lorenz_1963.py
 ### Neural Network Converter
 
 You can easily transform the TensorFlow-based PINN into a different NN model type.<br/>
-The *Schwanensee* framework helps you with some standard conversions.
-
-#### TensorFlow to ONNX
-
-```bash
-python -m tf2onnx.convert --saved-model damped_oscillator_simulator --output model.onnx
-```
-
-#### ONNX to PyTorch
-
-```bash
-python schwan/parser/onnx_to_pytorch.py
-```
+The *Schwanensee* framework allows you to transform your PINN into the ONNX standard.
 
 
 ## Examples
